@@ -21,11 +21,9 @@ from tqdm.autonotebook import tqdm
 from .unionfind import UnionFind
 import warnings
 
-from julia.api import Julia
-jl = Julia(compiled_modules=False)
-
-from julia import Distributions as dist
-from julia import Bigsimr as bs
+# Julia runtime is lazy-loaded only when knockoff features are needed.
+# This avoids spawning a heavyweight Julia process at import time,
+# which can become an orphan process if the Python process crashes.
 
 
 def ss_cv(X, y, stab_sel):
@@ -1004,55 +1002,66 @@ class Stabl(SelectorMixin, BaseEstimator):
 
         # --Loop--
         leave = (self.verbose > 0)
-        for idx, lambda_val in tqdm(
-                enumerate(param_grid),
-                'Stabl progress',
-                total=n_lambdas,
-                colour='#001A7B',
-                leave=leave,
-                file=sys.stdout,
-                disable=(not leave)
-        ):
+        try:
+            for idx, lambda_val in tqdm(
+                    enumerate(param_grid),
+                    'Stabl progress',
+                    total=n_lambdas,
+                    colour='#001A7B',
+                    leave=leave,
+                    file=sys.stdout,
+                    disable=(not leave)
+            ):
 
-            # Generating the bootstrap indices
-            bootstrap_indices = _bootstrap_generator(
-                n_bootstraps=self.n_bootstraps,
-                bootstrap_func=self.bootstrap_func,
-                y=y,
-                n_subsamples=n_subsamples,
-                replace=self.replace,
-                groups=groups,
-                class_weight=self.sample_weight_bootstrap,
-                random_state=self.random_state
-            )
+                # Generating the bootstrap indices
+                bootstrap_indices = _bootstrap_generator(
+                    n_bootstraps=self.n_bootstraps,
+                    bootstrap_func=self.bootstrap_func,
+                    y=y,
+                    n_subsamples=n_subsamples,
+                    replace=self.replace,
+                    groups=groups,
+                    class_weight=self.sample_weight_bootstrap,
+                    random_state=self.random_state
+                )
 
-            # Computing the frequencies
-            selected_variables = Parallel(
-                n_jobs=self.n_jobs,
-                verbose=0,
-                pre_dispatch='2*n_jobs'
-            )(delayed(fit_bootstrapped_sample)(
-                clone(base_estimator),
-                X=X[safe_mask(X, subsample_indices), :],
-                y=y[subsample_indices],
-                corr_groups=corr_groups,
-                lambda_val=lambda_val,
-                threshold=self.bootstrap_threshold
-            )
-                for subsample_indices in bootstrap_indices
-            )
+                # Computing the frequencies
+                # Using 'with' context manager ensures worker processes are
+                # properly cleaned up even if the main process crashes or
+                # is interrupted (e.g. Ctrl+C in Jupyter).
+                with Parallel(n_jobs=self.n_jobs, verbose=0, pre_dispatch='2*n_jobs') as parallel:
+                    selected_variables = parallel(
+                        delayed(fit_bootstrapped_sample)(
+                            clone(base_estimator),
+                            X=X[safe_mask(X, subsample_indices), :],
+                            y=y[subsample_indices],
+                            corr_groups=corr_groups,
+                            lambda_val=lambda_val,
+                            threshold=self.bootstrap_threshold
+                        )
+                        for subsample_indices in bootstrap_indices
+                    )
+
+                if self.artificial_type is not None:
+                    self.stabl_scores_artificial_[:, idx] = np.vstack(
+                        selected_variables)[:, n_features:].mean(axis=0)
+                self.stabl_scores_[:, idx] = np.vstack(selected_variables)[
+                    :, :n_features].mean(axis=0)
 
             if self.artificial_type is not None:
-                self.stabl_scores_artificial_[:, idx] = np.vstack(
-                    selected_variables)[:, n_features:].mean(axis=0)
-            self.stabl_scores_[:, idx] = np.vstack(selected_variables)[
-                :, :n_features].mean(axis=0)
+                self._compute_FDRc()
 
-        if self.artificial_type is not None:
-            self._compute_FDRc()
-
-        if self.auto_ss:
-            self.hard_threshold = ss_cv(X_old, y_old, self)
+            if self.auto_ss:
+                self.hard_threshold = ss_cv(X_old, y_old, self)
+        finally:
+            # Explicitly shut down loky's reusable worker pool to release
+            # all child processes. Without this, loky keeps workers alive
+            # in the background for potential reuse, causing "zombie" processes.
+            try:
+                from joblib.externals.loky import get_reusable_executor
+                get_reusable_executor().shutdown(wait=True)
+            except Exception:
+                pass
 
         return self
 
@@ -1231,6 +1240,11 @@ class Stabl(SelectorMixin, BaseEstimator):
                 rng.shuffle(X_artificial[:, i])
 
         elif artificial_type == "knockoff":
+            # Lazy-load Julia runtime only when knockoff features are needed
+            from julia.api import Julia
+            jl = Julia(compiled_modules=False)
+            from julia import Distributions as dist
+            from julia import Bigsimr as bs
 
             def generate_noise(X_a):
                 corr = self.corr

@@ -107,18 +107,28 @@ def nonpartition_cross_val_predict(
     """
     X, y = np.array(X), np.array(y)
 
-    predictions = np.array(
-        Parallel(
-            n_jobs=-1,
-            prefer='processes'
-        )(delayed(fit_predict)(
-            estimator,
-            X,
-            y,
-            train,
-            test,
-            task_type
-        ) for train, test in splitter.split(X, y, groups=groups)))
+    # Using 'with' context manager ensures worker processes are
+    # properly cleaned up even if the main process crashes or
+    # is interrupted (e.g. Ctrl+C in Jupyter).
+    try:
+        with Parallel(n_jobs=-1, prefer='processes') as parallel:
+            predictions = np.array(
+                parallel(delayed(fit_predict)(
+                    estimator,
+                    X,
+                    y,
+                    train,
+                    test,
+                    task_type
+                ) for train, test in splitter.split(X, y, groups=groups)))
+    finally:
+        # Explicitly shut down loky's reusable worker pool to release
+        # all child processes and reclaim memory.
+        try:
+            from joblib.externals.loky import get_reusable_executor
+            get_reusable_executor().shutdown(wait=True)
+        except Exception:
+            pass
 
     median_prediction = np.nanmedian(predictions, axis=0)
 
