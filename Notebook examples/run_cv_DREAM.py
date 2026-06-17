@@ -35,7 +35,7 @@ en = LogisticRegression(
     max_iter=int(1e3),
     random_state=random_seed
 )
-en_params = {"C": np.linspace(-2, 1, 10), "l1_ratio": np.linspace(0.2, 0.8, 3)}
+en_params = {"C": np.logspace(-2, 1, 10), "l1_ratio": np.linspace(0.2, 0.8, 3)}
 en_cv = GridSearchCV(en, param_grid=en_params, scoring="roc_auc", cv=chosen_inner_cv, n_jobs=-1)
 
 # ALasso

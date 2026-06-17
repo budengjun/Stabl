@@ -134,3 +134,7 @@ dmypy.json
 # Synthetic dataset
 Sample Data/Synthetic/*
 !Sample Data/Synthetic/runner.jl
+/Synthetic Linear/
+/Notebook examples/Results Dream/
+Sample Data/
+Results Dream Fast/

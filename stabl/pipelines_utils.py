@@ -22,45 +22,95 @@ from sklearn.model_selection import GridSearchCV
 def save_plots(predictions_dict, y, task_type, save_path):
     """
     Function to save the plots when performing a stabl against lasso benchmark.
-    In the case of binary classification, the function will save the associated roc and precision recall curve as well
-    as the boxplot of binary classification predictions.
-    In the case of regression, the function will save the associated scatter plot of regression predictions.
 
-    Parameters
-    ----------
-    predictions_dict: dict
-        Dictionary of predictions. Each value can either be a pandas Series or a pandas DataFrame,
-        depending on whether we computed the predictions once or on multiple folds.
-        The predictions_dict should contain the predictions associated to the Lasso and have the key "Lasso"
-
-    y: pd.Series
-        Outcome pandas Series used for evaluation. In the case of cross validation, this is also the outcome used for
-        training. In the case of validation this is the validation outcome.
-
-    task_type: str
-        Type of task. Can either be "binary" for binary classification or "regression" for regression tasks.
-
-    save_path: Path or str
-        Where to save the plots
-
-    use_median_preds: bool, default=True
-        If True the function will take for each predictions_dict value the median over the columns. This corresponds to
-        the case of cross-validation where we have some predictions at each fold that we want to median from.
-
+    Modified version:
+    - Saves raw prediction table as before.
+    - For plotting, converts CV prediction DataFrame to row-wise median prediction.
+    - Drops samples with all-NaN predictions before plotting.
     """
+
+    def clean_predictions_for_plots(predictions, y, model_name=None):
+        """
+        Convert prediction object into clean Series for plotting.
+        """
+
+        if isinstance(predictions, pd.DataFrame):
+            predictions_clean = predictions.median(axis=1, skipna=True)
+
+        elif isinstance(predictions, pd.Series):
+            predictions_clean = predictions
+
+        else:
+            predictions_clean = pd.Series(np.asarray(predictions).ravel())
+
+        if isinstance(y, pd.Series):
+            y_clean = y.loc[predictions_clean.index]
+        else:
+            y_clean = pd.Series(np.asarray(y).ravel(), index=predictions_clean.index)
+
+        valid_mask = ~predictions_clean.isna()
+
+        if valid_mask.sum() < len(valid_mask):
+            print("\n========== Warning: NaN predictions detected before plotting ==========")
+            print("Model:", model_name)
+            print("Number of samples:", len(valid_mask))
+            print("Samples dropped from plots:", len(valid_mask) - valid_mask.sum())
+
+            if isinstance(predictions, pd.DataFrame):
+                print("Rows with all-NaN predictions:")
+                print(predictions[predictions.isna().all(axis=1)].head(20))
+
+        predictions_clean = predictions_clean.loc[valid_mask]
+        y_clean = y_clean.loc[valid_mask]
+
+        return predictions_clean, y_clean
+
     for name, predictions in predictions_dict.items():
         print(name, predictions)
+
         saving_path = Path(save_path, name)
         os.makedirs(saving_path, exist_ok=True)
+
+        # Save raw predictions as before
+        if isinstance(predictions, pd.DataFrame):
+            pred_to_save = predictions.copy()
+
+        elif isinstance(predictions, pd.Series):
+            pred_to_save = predictions.to_frame(name="prediction")
+
+        else:
+            pred_to_save = pd.DataFrame(
+                np.asarray(predictions).ravel(),
+                columns=["prediction"]
+            )
+
+        if isinstance(y, pd.Series) and pred_to_save.index.isin(y.index).all():
+            y_to_save = y.loc[pred_to_save.index]
+        else:
+            y_to_save = pd.Series(
+                np.asarray(y).ravel()[:len(pred_to_save)],
+                index=pred_to_save.index,
+                name="y"
+            )
+
         pd.concat(
-            [predictions, y.loc[predictions.index]], axis=1).to_csv(
+            [pred_to_save, y_to_save],
+            axis=1
+        ).to_csv(
             os.path.join(saving_path, f"{name} predictions.csv")
+        )
+
+        # Clean predictions only for plotting
+        predictions_clean, y_clean = clean_predictions_for_plots(
+            predictions=predictions,
+            y=y,
+            model_name=name
         )
 
         if task_type == "binary":
             plot_roc(
-                y_true=y,
-                y_preds=predictions,
+                y_true=y_clean,
+                y_preds=predictions_clean,
                 show_CI=True,
                 export_file=True,
                 show_fig=False,
@@ -68,8 +118,8 @@ def save_plots(predictions_dict, y, task_type, save_path):
             )
 
             plot_prc(
-                y_true=y,
-                y_preds=predictions,
+                y_true=y_clean,
+                y_preds=predictions_clean,
                 show_CI=True,
                 export_file=True,
                 show_fig=False,
@@ -77,8 +127,8 @@ def save_plots(predictions_dict, y, task_type, save_path):
             )
 
             boxplot_binary_predictions(
-                y_true=y,
-                y_preds=predictions,
+                y_true=y_clean,
+                y_preds=predictions_clean,
                 export_file=True,
                 show_fig=False,
                 paths=os.path.join(saving_path, f"{name} Boxplot of median predictions.pdf")
@@ -86,8 +136,8 @@ def save_plots(predictions_dict, y, task_type, save_path):
 
         elif task_type == "regression":
             scatterplot_regression_predictions(
-                y_true=y,
-                y_preds=predictions,
+                y_true=y_clean,
+                y_preds=predictions_clean,
                 export_file=True,
                 show_fig=False,
                 paths=os.path.join(saving_path, f"{name} Scatter-plot of median predictions.pdf")
@@ -102,32 +152,71 @@ def compute_scores_table(
 ):
     """Function to output the table of scores for benchmarking.
 
-    Parameters
-    ----------
-    predictions_dict: dict
-        Dictionary of raw predictions of shape : {model_name: predictions}.
-
-    y: pd.Series
-        pandas Series containing the outcomes.
-
-    task_type: string, default="binary"
-        Type of task, can either be "binary" or "regression".
-
-    selected_features_dict: dict, default=None
-        Dictionary of selected features of shape : {model_name: pd.DataFrame} 
-        Each DataFrame should contain "Fold nb of features" and "Fold selected features" keys.
-
-    Returns
-    -------
-    table_of_scores: pd.DataFrame
-        pandas DataFrame containing the scores of each model.
+    Modified version:
+    - Handles prediction DataFrames from repeated CV by taking row-wise median.
+    - Aligns y with prediction index.
+    - Drops samples with all-NaN predictions before computing scores.
     """
+
+    def clean_predictions_for_scores(preds, y, model_name=None):
+        """
+        Convert prediction object into clean 1D arrays for scoring.
+
+        If preds is a DataFrame, each row may correspond to one sample and each
+        column to one CV split. Some entries can be NaN because a sample was not
+        in the test set for that split. We take the row-wise median over available
+        predictions.
+
+        If a row is still NaN after median, that sample had no prediction in any
+        split and is dropped.
+        """
+
+        if isinstance(preds, pd.DataFrame):
+            preds_clean = preds.median(axis=1, skipna=True)
+
+        elif isinstance(preds, pd.Series):
+            preds_clean = preds
+
+        else:
+            preds_clean = pd.Series(np.asarray(preds).ravel())
+
+        if isinstance(y, pd.Series):
+            if isinstance(preds_clean, pd.Series):
+                y_clean = y.loc[preds_clean.index]
+            else:
+                y_clean = y
+        else:
+            y_clean = pd.Series(np.asarray(y).ravel(), index=preds_clean.index)
+
+        preds_array = np.asarray(preds_clean, dtype=float)
+        y_array = np.asarray(y_clean, dtype=float)
+
+        valid_mask = ~np.isnan(preds_array)
+
+        if valid_mask.sum() < len(valid_mask):
+            print("\n========== Warning: NaN predictions detected ==========")
+            print("Model:", model_name)
+            print("Original preds type:", type(preds))
+            print("Original preds shape:", np.asarray(preds).shape)
+            print("Number of samples:", len(valid_mask))
+            print("Samples dropped because prediction is NaN:", len(valid_mask) - valid_mask.sum())
+
+            if isinstance(preds, pd.DataFrame):
+                print("Rows with all-NaN predictions:")
+                print(preds[preds.isna().all(axis=1)].head(20))
+
+                print("NaN count per prediction column:")
+                print(preds.isna().sum())
+
+        y_array = y_array[valid_mask]
+        preds_array = preds_array[valid_mask]
+
+        return y_array, preds_array
 
     scores_columns = []
     if selected_features_dict is not None:
         if task_type == "binary":
-            scores_columns = ["ROC AUC",
-                              "Average Precision", "N features", "CVS"]
+            scores_columns = ["ROC AUC", "Average Precision", "N features", "CVS"]
 
         elif task_type == "regression":
             scores_columns = ["R2", "RMSE", "MAE", "N features", "CVS"]
@@ -143,15 +232,22 @@ def compute_scores_table(
 
     for model, preds in predictions_dict.items():
 
+        y_array, preds_array = clean_predictions_for_scores(
+            preds=preds,
+            y=y,
+            model_name=model
+        )
+
         for metric in scores_columns:
+
             if metric == "ROC AUC":
-                model_roc = roc_auc_score(y, preds)
-                model_roc_CI = compute_CI(y, preds, scoring="roc_auc")
+                model_roc = roc_auc_score(y_array, preds_array)
+                model_roc_CI = compute_CI(y_array, preds_array, scoring="roc_auc")
                 cell_value = f"{model_roc:.3f} [{model_roc_CI[0]:.3f}, {model_roc_CI[1]:.3f}]"
 
             elif metric == "Average Precision":
-                model_ap = average_precision_score(y, preds)
-                model_ap_CI = compute_CI(y, preds, scoring="average_precision")
+                model_ap = average_precision_score(y_array, preds_array)
+                model_ap_CI = compute_CI(y_array, preds_array, scoring="average_precision")
                 cell_value = f"{model_ap:.3f} [{model_ap_CI[0]:.3f}, {model_ap_CI[1]:.3f}]"
 
             elif metric == "N features":
@@ -162,26 +258,27 @@ def compute_scores_table(
 
             elif metric == "CVS":
                 jaccard_mat = jaccard_matrix(
-                    selected_features_dict[model]["Fold selected features"], remove_diag=False)
-                jaccard_val = jaccard_mat[np.triu_indices_from(
-                    jaccard_mat, k=1)]
+                    selected_features_dict[model]["Fold selected features"],
+                    remove_diag=False
+                )
+                jaccard_val = jaccard_mat[np.triu_indices_from(jaccard_mat, k=1)]
                 jaccard_median = np.median(jaccard_val)
                 jaccard_iqr = np.quantile(jaccard_val, [.25, .75])
                 cell_value = f"{jaccard_median:.3f} [{jaccard_iqr[0]:.3f}, {jaccard_iqr[1]:.3f}]"
 
             elif metric == "R2":
-                model_r2 = r2_score(y, preds)
-                model_r2_CI = compute_CI(y, preds, scoring="r2")
+                model_r2 = r2_score(y_array, preds_array)
+                model_r2_CI = compute_CI(y_array, preds_array, scoring="r2")
                 cell_value = f"{model_r2:.3f} [{model_r2_CI[0]:.3f}, {model_r2_CI[1]:.3f}]"
 
             elif metric == "RMSE":
-                model_rmse = np.sqrt(mean_squared_error(y, preds))
-                model_rmse_CI = compute_CI(y, preds, scoring="rmse")
+                model_rmse = np.sqrt(mean_squared_error(y_array, preds_array))
+                model_rmse_CI = compute_CI(y_array, preds_array, scoring="rmse")
                 cell_value = f"{model_rmse:.3f} [{model_rmse_CI[0]:.3f}, {model_rmse_CI[1]:.3f}]"
 
             elif metric == "MAE":
-                model_mae = mean_absolute_error(y, preds)
-                model_mae_CI = compute_CI(y, preds, scoring="mae")
+                model_mae = mean_absolute_error(y_array, preds_array)
+                model_mae_CI = compute_CI(y_array, preds_array, scoring="mae")
                 cell_value = f"{model_mae:.3f} [{model_mae_CI[0]:.3f}, {model_mae_CI[1]:.3f}]"
 
             table_of_scores.loc[model, metric] = cell_value
@@ -195,34 +292,71 @@ def compute_pvalues_table(
         task_type="binary",
         selected_features_dict=None
 ):
-    """Function to output the p-values table for benchmarking. The p-values are computed between each model.
+    """Function to output the p-values table for benchmarking.
 
-    Parameters
-    ----------
-    predictions_dict: dict
-        Dictionary of raw predictions of shape : {model_name: predictions}.
-
-    y: pd.Series
-        pandas Series containing the outcomes.
-
-    task_type: string, default="binary"
-        Type of task, can either be "binary" or "regression".
-
-    selected_features_dict : dict, default=None
-        Dictionary of selected features of shape : {model_name: pd.DataFrame} 
-        Each DataFrame should contain "Fold nb of features" and "Fold selected features" keys.
-
-    Returns
-    -------
-    p_values_dict: dict of pd.DataFrame ({metric: pd.DataFrame})
-        Dictionary of pandas DataFrames containing the p-values on the metric between each model.
+    Modified version:
+    - Handles prediction DataFrames by taking row-wise median.
+    - Aligns y, preds, and preds2 by shared sample index.
+    - Drops samples where either model has NaN prediction.
     """
+
+    def clean_pair_predictions_for_pvalues(preds, preds2, y, model_name=None, model2_name=None):
+        """
+        Convert two prediction objects into clean aligned 1D arrays.
+
+        This is needed because CV prediction DataFrames may contain NaN values
+        for samples that were not predicted in some folds.
+        """
+
+        if isinstance(preds, pd.DataFrame):
+            preds_clean = preds.median(axis=1, skipna=True)
+        elif isinstance(preds, pd.Series):
+            preds_clean = preds
+        else:
+            preds_clean = pd.Series(np.asarray(preds).ravel())
+
+        if isinstance(preds2, pd.DataFrame):
+            preds2_clean = preds2.median(axis=1, skipna=True)
+        elif isinstance(preds2, pd.Series):
+            preds2_clean = preds2
+        else:
+            preds2_clean = pd.Series(np.asarray(preds2).ravel())
+
+        if isinstance(y, pd.Series):
+            common_index = preds_clean.index.intersection(preds2_clean.index).intersection(y.index)
+            y_clean = y.loc[common_index]
+            preds_clean = preds_clean.loc[common_index]
+            preds2_clean = preds2_clean.loc[common_index]
+        else:
+            y_clean = pd.Series(np.asarray(y).ravel())
+            common_index = preds_clean.index.intersection(preds2_clean.index)
+            y_clean = y_clean.loc[common_index]
+            preds_clean = preds_clean.loc[common_index]
+            preds2_clean = preds2_clean.loc[common_index]
+
+        y_array = np.asarray(y_clean, dtype=float)
+        preds_array = np.asarray(preds_clean, dtype=float)
+        preds2_array = np.asarray(preds2_clean, dtype=float)
+
+        valid_mask = (
+            ~np.isnan(y_array)
+            & ~np.isnan(preds_array)
+            & ~np.isnan(preds2_array)
+        )
+
+        if valid_mask.sum() < len(valid_mask):
+            print("\n========== Warning: NaN predictions detected in p-value computation ==========")
+            print("Model 1:", model_name)
+            print("Model 2:", model2_name)
+            print("Number of samples:", len(valid_mask))
+            print("Samples dropped:", len(valid_mask) - valid_mask.sum())
+
+        return y_array[valid_mask], preds_array[valid_mask], preds2_array[valid_mask]
 
     scores_columns = []
     if selected_features_dict is not None:
         if task_type == "binary":
-            scores_columns = ["ROC AUC",
-                              "Average Precision", "N features", "CVS"]
+            scores_columns = ["ROC AUC", "Average Precision", "N features", "CVS"]
 
         elif task_type == "regression":
             scores_columns = ["Prediction", "N features", "CVS"]
@@ -234,45 +368,98 @@ def compute_pvalues_table(
         elif task_type == "regression":
             scores_columns = ["Prediction"]
 
-    p_values_dict = {s: pd.DataFrame(columns=predictions_dict.keys(
-    ), index=predictions_dict.keys()) for s in scores_columns}
+    p_values_dict = {
+        s: pd.DataFrame(
+            columns=predictions_dict.keys(),
+            index=predictions_dict.keys()
+        )
+        for s in scores_columns
+    }
 
     for metric in scores_columns:
         p_values_df = p_values_dict[metric]
+
         for model, preds in predictions_dict.items():
             for model2, preds2 in predictions_dict.items():
 
                 if metric == "ROC AUC":
+                    y_array, preds_array, preds2_array = clean_pair_predictions_for_pvalues(
+                        preds=preds,
+                        preds2=preds2,
+                        y=y,
+                        model_name=model,
+                        model2_name=model2
+                    )
+
                     p_value = permutation_test_between_clfs(
-                        y, preds, preds2, scoring="roc_auc")[1]
+                        y_array,
+                        preds_array,
+                        preds2_array,
+                        scoring="roc_auc"
+                    )[1]
 
                 elif metric == "Average Precision":
+                    y_array, preds_array, preds2_array = clean_pair_predictions_for_pvalues(
+                        preds=preds,
+                        preds2=preds2,
+                        y=y,
+                        model_name=model,
+                        model2_name=model2
+                    )
+
                     p_value = permutation_test_between_clfs(
-                        y, preds, preds2, scoring="average_precision")[1]
+                        y_array,
+                        preds_array,
+                        preds2_array,
+                        scoring="average_precision"
+                    )[1]
 
                 elif metric == "N features":
                     sel_features = selected_features_dict[model]["Fold nb of features"]
                     sel_features2 = selected_features_dict[model2]["Fold nb of features"]
+
                     p_value = mannwhitneyu(
-                        x=sel_features, y=sel_features2).pvalue
+                        x=sel_features,
+                        y=sel_features2
+                    ).pvalue
 
                 elif metric == "CVS":
                     jaccard_mat = jaccard_matrix(
-                        selected_features_dict[model]["Fold selected features"], remove_diag=False)
+                        selected_features_dict[model]["Fold selected features"],
+                        remove_diag=False
+                    )
                     jaccard_val = jaccard_mat[np.triu_indices_from(
-                        jaccard_mat, k=1)]
+                        jaccard_mat,
+                        k=1
+                    )]
 
                     jaccard_mat2 = jaccard_matrix(
-                        selected_features_dict[model2]["Fold selected features"], remove_diag=False)
+                        selected_features_dict[model2]["Fold selected features"],
+                        remove_diag=False
+                    )
                     jaccard_val2 = jaccard_mat2[np.triu_indices_from(
-                        jaccard_mat2, k=1)]
+                        jaccard_mat2,
+                        k=1
+                    )]
 
                     p_value = mannwhitneyu(
-                        x=jaccard_val, y=jaccard_val2).pvalue
+                        x=jaccard_val,
+                        y=jaccard_val2
+                    ).pvalue
 
                 else:
+                    y_array, preds_array, preds2_array = clean_pair_predictions_for_pvalues(
+                        preds=preds,
+                        preds2=preds2,
+                        y=y,
+                        model_name=model,
+                        model2_name=model2
+                    )
+
                     p_value = mannwhitneyu(
-                        x=preds, y=preds2).pvalue
+                        x=preds_array,
+                        y=preds2_array
+                    ).pvalue
 
                 p_values_df.loc[model, model2] = p_value
 

@@ -609,7 +609,7 @@ def save_stabl_results(
     path = Path(path, '')
 
     try:
-        os.makedirs(path)
+        os.makedirs(path, exist_ok=True)
     except FileExistsError:
         raise FileExistsError(f"Folder with path={path} already exists.")
 
@@ -1279,7 +1279,10 @@ class Stabl(SelectorMixin, BaseEstimator):
                 X_artificial = np.empty(initial_shape)
                 for i in range(X.shape[1]//3000 + 1):
                     cols = rng.choice(a=X.shape[1], size=3000, replace=False)
-                    X_tmp = X.iloc[:, cols].copy()
+                    if isinstance(X, pd.DataFrame):
+                        X_tmp = X.iloc[:, cols].copy()
+                    else:
+                        X_tmp = X[:, cols].copy()
                     X_art_tmp = generate_noise(X_tmp)
                     X_artificial[:, i*3000: (i+1)*3000] = X_art_tmp
                 X_artificial = X_artificial[:, rng.choice(a=X_artificial.shape[1], size=X.shape[1], replace=False)]
