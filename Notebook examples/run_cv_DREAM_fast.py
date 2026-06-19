@@ -17,6 +17,8 @@ N_OUTER_SPLITS, INNER_REPEATS, STABL_BOOTSTRAPS, and N_ITER_LF.
 from julia.api import Julia
 
 
+import random
+
 import numpy as np
 from stabl import data
 from stabl.multi_omic_pipelines import multi_omic_stabl_cv
@@ -37,6 +39,7 @@ from sklearn.base import clone
 
 jl = Julia(compiled_modules=False)
 random_seed = 42
+random.seed(random_seed)
 np.random.seed(random_seed)
 
 # Original was: 5 splits x 5 repeats = 25 inner folds.
@@ -211,13 +214,12 @@ estimators = {
 }
 
 # Development default: fewer models.
-# Add STABL ALasso / ElasticNet back after the faster version runs successfully.
 models = [
     "Lasso",
     "ElasticNet",
     "STABL Lasso",
+    "STABL ElasticNet",
     # "STABL ALasso", "ALasso",
-    # "STABL ElasticNet", "ElasticNet",
     # "STABL SGL-90", "SGL-90",
     # "STABL SGL-95", "SGL-95",
 ]
@@ -229,6 +231,8 @@ print(
     f"STABL bootstraps: main={STABL_BOOTSTRAPS_MAIN}, secondary={STABL_BOOTSTRAPS_SECONDARY}"
 )
 print(f"Late fusion iterations: {N_ITER_LF}")
+print(f"Random seed: {random_seed}")
+print("Imputation strategy: iterative")
 print(f"Models: {models}")
 
 multi_omic_stabl_cv(
@@ -244,4 +248,6 @@ multi_omic_stabl_cv(
     models=models,
     late_fusion=True,
     n_iter_lf=N_ITER_LF,
+    imputation_strategy="iterative",
+    random_state=random_seed,
 )

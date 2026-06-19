@@ -9,7 +9,7 @@ from sklearn.metrics import roc_auc_score, r2_score
 # __FUNCTIONS__
 
 
-def stacked_multi_omic(df_predictions, y, task_type, n_iter=10000):
+def stacked_multi_omic(df_predictions, y, task_type, n_iter=10000, random_state=None):
     """
     Functions to compute the stacked generalization using the prediction of
     models trained on individual omics.
@@ -31,6 +31,9 @@ def stacked_multi_omic(df_predictions, y, task_type, n_iter=10000):
         Number of iterations to perform; each iteration corresponds to a random search
         of weights to test.
 
+    random_state: int, default=None
+        Seed or random state used for the random weight search.
+
     Returns
     -------
     df_predictions: pd.DataFrame
@@ -46,9 +49,10 @@ def stacked_multi_omic(df_predictions, y, task_type, n_iter=10000):
     best_score = -100
     best_weights = []
     best_probs = []
+    rng = np.random.default_rng(random_state)
 
     for i in range(n_iter):
-        weights = np.random.uniform(0, 10, df_predictions.shape[1])
+        weights = rng.uniform(0, 10, df_predictions.shape[1])
         weighted_probs = ((df_predictions * weights).sum(1)) / (
             (~df_predictions.isna() * weights).sum(1)
         )

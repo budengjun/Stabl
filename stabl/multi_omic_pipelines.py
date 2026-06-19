@@ -15,7 +15,8 @@ from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn import clone
 from pathlib import Path
 import os
@@ -42,14 +43,27 @@ logit = LogisticRegression(
 )
 linreg = LinearRegression()
 
-preprocessing = Pipeline(
-    steps=[
-        ("variance", VarianceThreshold(0.01)),
-        ("lif", LowInfoFilter()),
-        ("impute", SimpleImputer(strategy="median")),
-        ("std", StandardScaler()),
-    ]
-)
+
+def _make_imputer(imputation_strategy="simple", random_state=None):
+    if imputation_strategy == "simple":
+        return SimpleImputer(strategy="median")
+    if imputation_strategy == "iterative":
+        return IterativeImputer(random_state=random_state, initial_strategy="median")
+    raise ValueError("imputation_strategy must be 'simple' or 'iterative'.")
+
+
+def _make_preprocessing(imputation_strategy="simple", random_state=None):
+    return Pipeline(
+        steps=[
+            ("variance", VarianceThreshold(0.01)),
+            ("lif", LowInfoFilter()),
+            ("impute", _make_imputer(imputation_strategy, random_state)),
+            ("std", StandardScaler()),
+        ]
+    )
+
+
+preprocessing = _make_preprocessing()
 
 
 def _make_groups(X, percentile):
@@ -82,6 +96,8 @@ def multi_omic_stabl_cv(
     late_fusion=True,
     n_iter_lf=10000,
     sgl_corr_percentile=[90],
+    imputation_strategy="simple",
+    random_state=None,
 ):
     """
     Performs a cross validation on the data_dict using the models and saves the results in save_path.
@@ -148,6 +164,12 @@ def multi_omic_stabl_cv(
     sgl_corr_percentile: list of float, default=[90]
         List of correlation threshold to use for SGL and STABL SGL.
 
+    imputation_strategy: {"simple", "iterative"}, default="simple"
+        Imputation strategy used before standardization.
+
+    random_state: int, default=None
+        Seed used by stochastic preprocessing and late fusion.
+
     Returns
     -------
     predictions_dict: dict
@@ -155,6 +177,7 @@ def multi_omic_stabl_cv(
     """
     if not isinstance(sgl_corr_percentile, list):
         sgl_corr_percentile = [sgl_corr_percentile]
+    preprocessing = _make_preprocessing(imputation_strategy, random_state)
 
     if early_fusion:
         models += ["EF " + model for model in models if "STABL" not in model]
@@ -470,7 +493,7 @@ def multi_omic_stabl_cv(
                 # Standardization
                 std_pipe = Pipeline(
                     steps=[
-                        ("imputer", SimpleImputer(strategy="median")),
+                        ("imputer", _make_imputer(imputation_strategy, random_state)),
                         ("std", StandardScaler()),
                     ]
                 )
@@ -524,6 +547,7 @@ def multi_omic_stabl_cv(
                 task_type,
                 Path(save_path, "Training CV"),
                 n_iter=n_iter_lf,
+                random_state=random_state,
             )
             for model in preds_lf:
                 predictions_dict[model].loc[test_idx, f"Fold n°{k}"] = preds_lf[model]
@@ -1509,7 +1533,9 @@ def multi_omic_stabl(
     return predictions_dict
 
 
-def late_fusion_cv(predictions_lf_dict, y, task_type, save_path, n_iter=10000):
+def late_fusion_cv(
+    predictions_lf_dict, y, task_type, save_path, n_iter=10000, random_state=None
+):
     """
     Perform a late fusion of omics using the prediction of each model on the train set.
     It uses stacked_multi_omic to perform the late fusion.
@@ -1531,6 +1557,9 @@ def late_fusion_cv(predictions_lf_dict, y, task_type, save_path, n_iter=10000):
 
     n_iter: int
         Number of iterations for the late fusion.
+
+    random_state: int, default=None
+        Seed used by the random weight search.
     Returns
     -------
     final_predictions_dict: dict of pd.DataFrame
@@ -1538,7 +1567,7 @@ def late_fusion_cv(predictions_lf_dict, y, task_type, save_path, n_iter=10000):
     """
     final_predictions_dict = {}
     os.makedirs(save_path, exist_ok=True)
-    for model_name, predictions in (
+    for model_idx, (model_name, predictions) in enumerate(
         tmodel := tqdm(predictions_lf_dict.items(), total=len(predictions_lf_dict))
     ):
         tmodel.set_description(f"Late Fusion {model_name}")
@@ -1549,8 +1578,11 @@ def late_fusion_cv(predictions_lf_dict, y, task_type, save_path, n_iter=10000):
         preds_omics = pd.DataFrame(data=None, columns=predictions.keys())
         for omic_name, preds in predictions.items():
             preds_omics[omic_name] = preds.median(axis=1)
+        model_random_state = (
+            None if random_state is None else random_state + model_idx
+        )
         stacked_df, weights = stacked_multi_omic(
-            preds_omics, y, task_type, n_iter=n_iter
+            preds_omics, y, task_type, n_iter=n_iter, random_state=model_random_state
         )
         weights.to_csv(Path(model_lf_path, f"Associated weights {model_name}.csv"))
         stacked_df.to_csv(
