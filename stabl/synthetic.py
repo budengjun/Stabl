@@ -1,3 +1,5 @@
+# pylint: disable=no-member
+
 from copy import deepcopy
 from tqdm.autonotebook import tqdm
 import numpy as np
@@ -6,15 +8,34 @@ import os
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from sklearn.linear_model import Lasso, LassoCV, Ridge, RidgeCV, ElasticNet, ElasticNetCV
+from sklearn.linear_model import (
+    Lasso,
+    LassoCV,
+    Ridge,
+    RidgeCV,
+    ElasticNet,
+    ElasticNetCV,
+)
 from sklearn.model_selection import RepeatedKFold, train_test_split, GridSearchCV
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, roc_auc_score, roc_curve, average_precision_score
+from sklearn.metrics import (
+    r2_score,
+    mean_squared_error,
+    mean_absolute_error,
+    roc_auc_score,
+    roc_curve,
+    average_precision_score,
+)
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
 from sklearn.base import clone
 
 from .unionfind import UnionFind
-from .metrics import jaccard_similarity, fdr_similarity, tpr_similarity, fscore_similarity
+from .metrics import (
+    jaccard_similarity,
+    fdr_similarity,
+    tpr_similarity,
+    fscore_similarity,
+)
 from .visualization import make_beautiful_axis
 from .stacked_generalization import stacked_multi_omic
 from .pipelines_utils import BenchmarkWrapper
@@ -33,7 +54,7 @@ en = ElasticNet(max_iter=int(1e6))
 encv = ElasticNetCV(n_alphas=30, cv=5, max_iter=int(1e6))
 
 ridge = Ridge()
-ridgecv = RidgeCV(alphas=np.logspace(-2, 2, 30), cv=5, scoring='r2')
+ridgecv = RidgeCV(alphas=np.logspace(-2, 2, 30), cv=5, scoring="r2")
 
 feature_metrics = {
     "JACCARD": jaccard_similarity,
@@ -43,10 +64,7 @@ feature_metrics = {
 features_array_metrics = {
     "AUC features": roc_auc_score,
 }
-binary_prediction_metrics = {
-    "AUC": roc_auc_score,
-    "AVP": average_precision_score
-}
+binary_prediction_metrics = {"AUC": roc_auc_score, "AVP": average_precision_score}
 regression_prediction_metrics = {
     "R2": r2_score,
     "RMSE": lambda x, y: mean_squared_error(x, y, squared=False),
@@ -71,7 +89,7 @@ def _make_groups(X, percentile):
 
 
 def fscore_metrics(betas):
-    f"""Generate a dictionary of fscore metrics for given betas
+    """Generate a dictionary of fscore metrics for given betas
 
     Parameters
     ----------
@@ -110,8 +128,8 @@ def _linear_output(X, n_informative, snr=2):
     betas = np.zeros(X.shape[1])
     betas[:n_informative] = rng.uniform(low=-10, high=10, size=n_informative)
     y = X @ betas
-    print(f"STD y:", y.std())
-    y = (y-y.mean())/y.std()
+    print("STD y:", y.std())
+    y = (y - y.mean()) / y.std()
     # y = y-y.mean()
     scale = np.std(y) / snr
     print(f"SCALE: {scale}")
@@ -157,9 +175,9 @@ def make_train_test(
     """
 
     rng = np.random.RandomState(42)
-    indices = ['Id_' + str(i) for i in range(U.shape[0])]
-    features = ['Ft_' + str(i) for i in range(U.shape[1])]
-    U = (U - U.mean())/U.std()
+    indices = ["Id_" + str(i) for i in range(U.shape[0])]
+    features = ["Ft_" + str(i) for i in range(U.shape[1])]
+    U = (U - U.mean()) / U.std()
 
     n_features = U.shape[1]
 
@@ -183,12 +201,14 @@ def make_train_test(
         raise ValueError("unrecognized output_type")
 
     X = pd.DataFrame(data=X, index=indices, columns=features)
-    y = pd.Series(data=y, index=indices, name='Outcome')
+    y = pd.Series(data=y, index=indices, name="Outcome")
 
     if output_type == "binary":
         print(y.value_counts())
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=10000, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, train_size=10000, random_state=42
+    )
 
     if multiomics:
         train_data_dict = dict()
@@ -196,17 +216,21 @@ def make_train_test(
 
         info_rd = rng.choice(n_informative, n_informative, replace=False)
         nb_noinfo_features = n_features - n_informative
-        features_rd = rng.choice(np.arange(n_informative, n_features, 1), nb_noinfo_features, replace=False)
+        features_rd = rng.choice(
+            np.arange(n_informative, n_features, 1), nb_noinfo_features, replace=False
+        )
 
         i = 0
         f = 0
         for idx, (features, info) in enumerate(zip(omics_features, omics_info)):
-            info_indices = info_rd[i: i+info]
-            features_indices = features_rd[f: f+features]
+            info_indices = info_rd[i : i + info]
+            features_indices = features_rd[f : f + features]
 
-            tmp_df = pd.concat([X.iloc[:, info_indices], X.iloc[:, features_indices]], axis=1)
-            train_data_dict[f"omic {idx+1}"] = tmp_df.loc[X_train.index]
-            test_data_dict[f"omic {idx+1}"] = tmp_df.loc[X_test.index]
+            tmp_df = pd.concat(
+                [X.iloc[:, info_indices], X.iloc[:, features_indices]], axis=1
+            )
+            train_data_dict[f"omic {idx + 1}"] = tmp_df.loc[X_train.index]
+            test_data_dict[f"omic {idx + 1}"] = tmp_df.loc[X_test.index]
 
             i += info
             f += features
@@ -236,15 +260,23 @@ def save_metric_graph(df_results, estimators, path, name):
     fig, ax = plt.subplots(figsize=(10, 10))
 
     for estimator in estimators:
-        ax.plot(df_results.index, df_results[f"{estimator}_{name}_Perf_Median"], linestyle=":", marker="o",
-                label=estimator)
+        ax.plot(
+            df_results.index,
+            df_results[f"{estimator}_{name}_Perf_Median"],
+            linestyle=":",
+            marker="o",
+            label=estimator,
+        )
 
     ax.set_xlabel("Number of samples")
-    ax.set_ylabel(name+" Median")
-    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2),
-                     loc="lower center", fontsize=8)
-    fig.savefig(Path(path, name + ".pdf"), dpi=95,
-                bbox_extra_artists=(lgd,), bbox_inches='tight')
+    ax.set_ylabel(name + " Median")
+    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower center", fontsize=8)
+    fig.savefig(
+        Path(path, name + ".pdf"),
+        dpi=95,
+        bbox_extra_artists=(lgd,),
+        bbox_inches="tight",
+    )
     plt.close()
 
     # generate median graph with error bars
@@ -252,24 +284,32 @@ def save_metric_graph(df_results, estimators, path, name):
 
     for estimator in estimators:
         perf_low = list(
-            df_results[f"{estimator}_{name}_Perf_Median"] - df_results[f"{estimator}_{name}_Perf_Q1"])
-        perf_up = list(-df_results[f"{estimator}_{name}_Perf_Median"] +
-                       df_results[f"{estimator}_{name}_Perf_Q3"])
-        ax.errorbar(df_results.index,
-                    df_results[f"{estimator}_{name}_Perf_Median"],
-                    [perf_low, perf_up],
-                    marker='o',
-                    capsize=3,
-                    fmt=':',
-                    capthick=1,
-                    label=estimator
-                    )
+            df_results[f"{estimator}_{name}_Perf_Median"]
+            - df_results[f"{estimator}_{name}_Perf_Q1"]
+        )
+        perf_up = list(
+            -df_results[f"{estimator}_{name}_Perf_Median"]
+            + df_results[f"{estimator}_{name}_Perf_Q3"]
+        )
+        ax.errorbar(
+            df_results.index,
+            df_results[f"{estimator}_{name}_Perf_Median"],
+            [perf_low, perf_up],
+            marker="o",
+            capsize=3,
+            fmt=":",
+            capthick=1,
+            label=estimator,
+        )
     ax.set_xlabel("Number of samples")
-    ax.set_ylabel(name+" Median")
-    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2),
-                     loc="lower center", fontsize=8)
-    fig.savefig(Path(path, name + " performance with errorbar.pdf"),
-                dpi=95, bbox_extra_artists=(lgd,), bbox_inches='tight')
+    ax.set_ylabel(name + " Median")
+    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower center", fontsize=8)
+    fig.savefig(
+        Path(path, name + " performance with errorbar.pdf"),
+        dpi=95,
+        bbox_extra_artists=(lgd,),
+        bbox_inches="tight",
+    )
     plt.close()
 
 
@@ -295,8 +335,13 @@ def save_continuous_scores(dict_results, estimators, path, name, base_estim):
             fig, ax = plt.subplots(figsize=(10, 10))
             df_results = pd.DataFrame()
             for n_sample in dict_results.keys():
-                df_tmp = dict_results[n_sample][[f"stabl_{estimator}_{name}", f"{estimator}_{name}"]]
-                df_tmp = pd.concat([df_tmp, pd.Series(n_sample, index=df_tmp.index, name="n_sample")], axis=1)
+                df_tmp = dict_results[n_sample][
+                    [f"stabl_{estimator}_{name}", f"{estimator}_{name}"]
+                ]
+                df_tmp = pd.concat(
+                    [df_tmp, pd.Series(n_sample, index=df_tmp.index, name="n_sample")],
+                    axis=1,
+                )
                 df_results = pd.concat([df_results, df_tmp], axis=0)
             df_results = pd.melt(df_results, id_vars=["n_sample"])
             sns.boxplot(df_results, x="n_sample", y="value", hue="variable", ax=ax)
@@ -312,33 +357,56 @@ def save_continuous_scores(dict_results, estimators, path, name, base_estim):
             ax.set_xlabel("Number of samples")
             ax.set_ylabel(f"{name} Score")
             # ax.set_yscale("log")
-            lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2),
-                             loc="lower center", fontsize=8)
-            fig.savefig(Path(path, f"{name} - {estimator} - scores with errorbar.pdf"),
-                        dpi=95, bbox_extra_artists=(lgd,), bbox_inches='tight')
+            lgd = plt.legend(
+                bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower center", fontsize=8
+            )
+            fig.savefig(
+                Path(path, f"{name} - {estimator} - scores with errorbar.pdf"),
+                dpi=95,
+                bbox_extra_artists=(lgd,),
+                bbox_inches="tight",
+            )
             ax.set_yscale("log")
-            fig.savefig(Path(path, f"{name} - {estimator} - ylog scores with errorbar.pdf"),
-                        dpi=95, bbox_extra_artists=(lgd,), bbox_inches='tight')
+            fig.savefig(
+                Path(path, f"{name} - {estimator} - ylog scores with errorbar.pdf"),
+                dpi=95,
+                bbox_extra_artists=(lgd,),
+                bbox_inches="tight",
+            )
             plt.close()
 
     fig, ax = plt.subplots(figsize=(10, 10))
     medians = pd.DataFrame(index=dict_results.keys())
     for n_sample in dict_results.keys():
         for estimator in estimators:
-            medians.loc[n_sample, f"{estimator}_{name}"] = dict_results[n_sample][f"{estimator}_{name}"].median()
+            medians.loc[n_sample, f"{estimator}_{name}"] = dict_results[n_sample][
+                f"{estimator}_{name}"
+            ].median()
     for estimator in estimators:
-        ax.plot(medians.index, medians[f"{estimator}_{name}"],
-                linestyle=":", marker="o", label=estimator)
+        ax.plot(
+            medians.index,
+            medians[f"{estimator}_{name}"],
+            linestyle=":",
+            marker="o",
+            label=estimator,
+        )
     ax.set_xlabel("Number of samples")
     ax.set_ylabel(f"Median {name} score")
     ax.set_yscale("log")
-    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2),
-                     loc="lower center", fontsize=8)
-    fig.savefig(Path(path, name + " scores.pdf"),
-                dpi=95, bbox_extra_artists=(lgd,), bbox_inches='tight')
+    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower center", fontsize=8)
+    fig.savefig(
+        Path(path, name + " scores.pdf"),
+        dpi=95,
+        bbox_extra_artists=(lgd,),
+        bbox_inches="tight",
+    )
     ax.set_xscale("log")
-    fig.savefig(Path(path, name + " log scores.pdf"),
-                dpi=95, bbox_extra_artists=(lgd,), bbox_inches='tight')
+    fig.savefig(
+        Path(path, name + " log scores.pdf"),
+        dpi=95,
+        bbox_extra_artists=(lgd,),
+        bbox_inches="tight",
+    )
     plt.close()
 
 
@@ -355,23 +423,28 @@ def save_roc_values(ground_truth, all_values, path):
         Name of the file where the graph will be saved
     """
     fig, ax = plt.subplots(figsize=(10, 10))
-    ax.plot([0, 1], [0, 1], linestyle='--', lw=1.5,
-            color='#4D4F53', alpha=.8, label="Chance")
+    ax.plot(
+        [0, 1],
+        [0, 1],
+        linestyle="--",
+        lw=1.5,
+        color="#4D4F53",
+        alpha=0.8,
+        label="Chance",
+    )
     for i in all_values.keys():
         mean_values = np.median(all_values[i], axis=0)
         auc = roc_auc_score(ground_truth, mean_values)
         roc = roc_curve(ground_truth, mean_values)
-        ax.plot(roc[0], roc[1], lw=2, alpha=1,
-                label=f"{i} ROC (AUC={auc:.3f})")
+        ax.plot(roc[0], roc[1], lw=2, alpha=1, label=f"{i} ROC (AUC={auc:.3f})")
     make_beautiful_axis(ax)
-    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2),
-                     loc="lower center", fontsize=8)
-    fig.savefig(path, dpi=95, bbox_extra_artists=(lgd,), bbox_inches='tight')
+    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower center", fontsize=8)
+    fig.savefig(path, dpi=95, bbox_extra_artists=(lgd,), bbox_inches="tight")
     plt.close()
 
 
 def _get_stabl(model):
-    """Return the Stabl model if it is or contains one, else return None. 
+    """Return the Stabl model if it is or contains one, else return None.
     It extracts the Stabl object from a Pipeline if it is one.
     Its purpose is to extract the Stabl object from any estimator.
 
@@ -420,22 +493,22 @@ def perform_prediction(estimator, X_train, y_train, X_test, output_type, feature
 
 
 def synthetic_benchmark_feature_selection(
-        X,
-        estimators,
-        preprocess_transformer=StandardScaler(),
-        n_informative_list=[25],
-        n_samples_list=[30, 40, 50, 75, 100, 150, 250, 350, 500, 750, 1000],
-        n_experiments=50,
-        result_folder_title="Synthetic Results",
-        f_number=[0.1, 0.5, 1],
-        output_type="linear",
-        input_type="normal",
-        verbose=0,
-        snr=2,
-        scale_u=2,
-        sgl_corr_percentile=99,
-        sgl_groups=None,
-        base_estim=["alasso", "lasso", "en", "sgl"]
+    X,
+    estimators,
+    preprocess_transformer=StandardScaler(),
+    n_informative_list=[25],
+    n_samples_list=[30, 40, 50, 75, 100, 150, 250, 350, 500, 750, 1000],
+    n_experiments=50,
+    result_folder_title="Synthetic Results",
+    f_number=[0.1, 0.5, 1],
+    output_type="linear",
+    input_type="normal",
+    verbose=0,
+    snr=2,
+    scale_u=2,
+    sgl_corr_percentile=99,
+    sgl_groups=None,
+    base_estim=["alasso", "lasso", "en", "sgl"],
 ):
     """Run benchmark on synthetic data in regression task
 
@@ -477,7 +550,13 @@ def synthetic_benchmark_feature_selection(
         f_number = [f_number]
     verbose_array = bin(verbose + 64)[-5:]  # 64 = 100000
 
-    for n_info in (pbar_info := tqdm(n_informative_list, total=len(n_informative_list), disable=verbose_array[3] == '0')):
+    for n_info in (
+        pbar_info := tqdm(
+            n_informative_list,
+            total=len(n_informative_list),
+            disable=verbose_array[3] == "0",
+        )
+    ):
         pbar_info.set_description_str(f"[n_informative={n_info}]")
 
         X_train, X_test, y_train, y_test = make_train_test(
@@ -486,7 +565,7 @@ def synthetic_benchmark_feature_selection(
             output_type=output_type,
             snr=snr,
             scale_u=scale_u,
-            input_type=input_type
+            input_type=input_type,
         )
 
         task_type = "binary" if output_type == "binary" else "regression"
@@ -501,10 +580,18 @@ def synthetic_benchmark_feature_selection(
 
         df_results = pd.DataFrame(data=None, index=n_samples_list)
         dict_results = {}
-        df_results.index.name = 'nb_samples'
+        df_results.index.name = "nb_samples"
 
-        for n_samples in (pbar_sample := tqdm(n_samples_list, total=len(n_samples_list), disable=verbose_array[2] == '0')):
-            pbar_sample.set_description_str(f"[n_informative={n_info}, n_samples={n_samples}]")
+        for n_samples in (
+            pbar_sample := tqdm(
+                n_samples_list,
+                total=len(n_samples_list),
+                disable=verbose_array[2] == "0",
+            )
+        ):
+            pbar_sample.set_description_str(
+                f"[n_informative={n_info}, n_samples={n_samples}]"
+            )
 
             all_values = {k: [] for k in estimators.keys()}
             all_preds = {k: [] for k in estimators.keys()}
@@ -518,27 +605,38 @@ def synthetic_benchmark_feature_selection(
                 p_metrics = regression_prediction_metrics
 
             scores = {
-                k: [] for k in (
-                    list(f_metrics.keys()) +
-                    list(p_metrics.keys()) +
-                    list(f_array_metrics.keys()) +
-                    ["NB_FEATURES"]
+                k: []
+                for k in (
+                    list(f_metrics.keys())
+                    + list(p_metrics.keys())
+                    + list(f_array_metrics.keys())
+                    + ["NB_FEATURES"]
                 )
             }
 
             estimators_scores = {k: deepcopy(scores) for k in estimators.keys()}
             rng = np.random.RandomState(42)
 
-            best_param_en = pd.DataFrame(index=range(n_experiments), columns=["alpha", "l1_ratio"])
+            best_param_en = pd.DataFrame(
+                index=range(n_experiments), columns=["alpha", "l1_ratio"]
+            )
 
-            for iteration in (pbar_exp := tqdm(range(n_experiments), total=n_experiments, disable=verbose_array[1] == '0')):
-                pbar_exp.set_description_str(f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}]")
+            for iteration in (
+                pbar_exp := tqdm(
+                    range(n_experiments),
+                    total=n_experiments,
+                    disable=verbose_array[1] == "0",
+                )
+            ):
+                pbar_exp.set_description_str(
+                    f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}]"
+                )
                 X_subtrain, y_subtrain = resample(
                     X_train,
                     y_train,
                     n_samples=n_samples,
                     replace=False,
-                    random_state=rng
+                    random_state=rng,
                 )
 
                 X_subtrain_p = preprocess_transformer.fit_transform(X_subtrain)
@@ -546,7 +644,7 @@ def synthetic_benchmark_feature_selection(
                 X_subtrain = pd.DataFrame(
                     data=X_subtrain_p,
                     index=X_subtrain.index,
-                    columns=preprocess_transformer.get_feature_names_out()
+                    columns=preprocess_transformer.get_feature_names_out(),
                 )
 
                 X_test_std = preprocess_transformer.transform(X_test)
@@ -554,11 +652,19 @@ def synthetic_benchmark_feature_selection(
                 X_test_std = pd.DataFrame(
                     data=X_test_std,
                     index=X_test.index,
-                    columns=preprocess_transformer.get_feature_names_out()
+                    columns=preprocess_transformer.get_feature_names_out(),
                 )
 
-                for k, v in (pbar_estim := tqdm(estimators.items(), total=len(estimators), disable=verbose_array[0] == '0')):
-                    pbar_estim.set_description_str(f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}, estimator={k}]")
+                for k, v in (
+                    pbar_estim := tqdm(
+                        estimators.items(),
+                        total=len(estimators),
+                        disable=verbose_array[0] == "0",
+                    )
+                ):
+                    pbar_estim.set_description_str(
+                        f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}, estimator={k}]"
+                    )
                     v = clone(v)
                     if isinstance(v, Stabl):
                         stabl_model = v
@@ -569,8 +675,13 @@ def synthetic_benchmark_feature_selection(
                                 lambda_grid = np.linspace(min_C, min_C * 100, 5)
                                 prev_lambda_grid = {"C": lambda_grid}
                             else:
-                                l_max = np.linalg.norm(X_subtrain.values.T@y_subtrain, np.inf)/X_subtrain.shape[0]
-                                lambda_grid = np.geomspace(l_max/30, l_max + 5, 5)
+                                l_max = (
+                                    np.linalg.norm(
+                                        X_subtrain.values.T @ y_subtrain, np.inf
+                                    )
+                                    / X_subtrain.shape[0]
+                                )
+                                lambda_grid = np.geomspace(l_max / 30, l_max + 5, 5)
                                 prev_lambda_grid = {"alpha": lambda_grid}
                             stabl_model.set_params(lambda_grid=prev_lambda_grid)
 
@@ -588,18 +699,20 @@ def synthetic_benchmark_feature_selection(
                         else:
                             groups_sgl = sgl_groups
 
-                        setattr(model.estimator, "groups", groups_sgl)
+                        setattr(v.estimator, "groups", groups_sgl)
 
                     fitted_est = v.fit(X_subtrain, y_subtrain)
 
                     if isinstance(v, Stabl):
-                        stabl_path = Path(f"./{result_folder_title}/NbInfo={n_info}/Stabl results n_samples={n_samples}/iteration {iteration}/{k}")
+                        stabl_path = Path(
+                            f"./{result_folder_title}/NbInfo={n_info}/Stabl results n_samples={n_samples}/iteration {iteration}/{k}"
+                        )
                         save_stabl_results(
                             stabl=stabl_model,
                             path=stabl_path,
                             df_X=X_subtrain,
                             y=y_subtrain,
-                            task_type=task_type
+                            task_type=task_type,
                         )
 
                         fdr_min_thresholds[k][n_samples].append(v.fdr_min_threshold_)
@@ -614,33 +727,59 @@ def synthetic_benchmark_feature_selection(
                             # os.makedirs(model_path, exist_ok=True)
                             for el_k, el_v in fitted_est.best_params_.items():
                                 best_param_en.loc[iteration, el_k] = el_v
-                        features = list(np.where(fitted_est.best_estimator_.coef_.flatten())[0])
-                        features_importances = fitted_est.best_estimator_.coef_.flatten()
+                        features = list(
+                            np.where(fitted_est.best_estimator_.coef_.flatten())[0]
+                        )
+                        features_importances = (
+                            fitted_est.best_estimator_.coef_.flatten()
+                        )
 
                     all_values[k].append(features_importances)
                     for n, f in f_metrics.items():
-                        estimators_scores[k][n].append(f(features, groud_truth_features))
+                        estimators_scores[k][n].append(
+                            f(features, groud_truth_features)
+                        )
 
                     for n, f in f_array_metrics.items():
-                        estimators_scores[k][n].append(f(groud_truth_features_array, features_importances))
+                        estimators_scores[k][n].append(
+                            f(groud_truth_features_array, features_importances)
+                        )
 
                     estimators_scores[k]["NB_FEATURES"].append(len(features))
 
-                    preds = perform_prediction(fitted_est, X_subtrain, y_subtrain, X_test_std, output_type, features=features)
+                    preds = perform_prediction(
+                        fitted_est,
+                        X_subtrain,
+                        y_subtrain,
+                        X_test_std,
+                        output_type,
+                        features=features,
+                    )
                     all_preds[k].append(preds)
                     for n, f in p_metrics.items():
                         estimators_scores[k][n].append(f(y_test, preds))
-                os.makedirs(Path(f"./{result_folder_title}/NbInfo={n_info}/Model results n_samples={n_samples}"), exist_ok=True)
-                best_param_en.to_csv(Path(f"./{result_folder_title}/NbInfo={n_info}/Model results n_samples={n_samples}/en_params.csv"))
+                os.makedirs(
+                    Path(
+                        f"./{result_folder_title}/NbInfo={n_info}/Model results n_samples={n_samples}"
+                    ),
+                    exist_ok=True,
+                )
+                best_param_en.to_csv(
+                    Path(
+                        f"./{result_folder_title}/NbInfo={n_info}/Model results n_samples={n_samples}/en_params.csv"
+                    )
+                )
             # -----------------------------------------------------------------------------------
             # SAVING RAW SCORES
             scores_path = f"./{result_folder_title}/NbInfo={n_info}/Scores"
             os.makedirs(scores_path, exist_ok=True)
-            scores_df = pd.DataFrame(data={
-                f"{m}_{k}": v for m in estimators.keys() for k, v in estimators_scores[m].items()
-            },
-                index=[
-                f"Experiment {i + 1}" for i in range(n_experiments)]
+            scores_df = pd.DataFrame(
+                data={
+                    f"{m}_{k}": v
+                    for m in estimators.keys()
+                    for k, v in estimators_scores[m].items()
+                },
+                index=[f"Experiment {i + 1}" for i in range(n_experiments)],
             )
             scores_df.to_csv(Path(scores_path, f"Raw_scores_NbSamples={n_samples}.csv"))
 
@@ -649,32 +788,39 @@ def synthetic_benchmark_feature_selection(
             values_path = f"./{result_folder_title}/NbInfo={n_info}/Values/Raw_values_NbSamples={n_samples}"
             os.makedirs(values_path, exist_ok=True)
             for i in estimators.keys():
-                values_df = pd.DataFrame(data=all_values[i],
-                                         index=[
-                                             f"Experiment {j + 1}" for j in range(n_experiments)]
-                                         )
+                values_df = pd.DataFrame(
+                    data=all_values[i],
+                    index=[f"Experiment {j + 1}" for j in range(n_experiments)],
+                )
                 values_df.to_csv(
-                    Path(values_path, f"Raw_values_{i}_NbSamples={n_samples}.csv"))
+                    Path(values_path, f"Raw_values_{i}_NbSamples={n_samples}.csv")
+                )
 
             # SAVING ROC CURVES
             roc_path = f"./{result_folder_title}/NbInfo={n_info}/ROC curves"
             os.makedirs(roc_path, exist_ok=True)
-            save_roc_values(groud_truth_features_array, all_values, Path(
-                roc_path, f"ROC_NbSamples={n_samples}.pdf"))
+            save_roc_values(
+                groud_truth_features_array,
+                all_values,
+                Path(roc_path, f"ROC_NbSamples={n_samples}.pdf"),
+            )
 
             # -----------------------------------------------------------------------------------
             # SAVING RAW PREDICTIONS
-            folder = f"./{result_folder_title}/NbInfo={n_info}/Predictions/" \
-                     f"Raw_predictions_NbSamples={n_samples}"
+            folder = (
+                f"./{result_folder_title}/NbInfo={n_info}/Predictions/"
+                f"Raw_predictions_NbSamples={n_samples}"
+            )
             os.makedirs(folder, exist_ok=True)
             for name, preds in all_preds.items():
-                df_predictions = pd.DataFrame(data=np.array(preds).T,
-                                              columns=[
-                                                  f"Experiment {i}" for i in range(n_experiments)]
-                                              )
+                df_predictions = pd.DataFrame(
+                    data=np.array(preds).T,
+                    columns=[f"Experiment {i}" for i in range(n_experiments)],
+                )
                 df_predictions["Outcome"] = np.array(y_test)
                 df_predictions.to_csv(
-                    Path(folder, f"{name}_predictions_NbSamples={n_samples}.csv"))
+                    Path(folder, f"{name}_predictions_NbSamples={n_samples}.csv")
+                )
 
             # -----------------------------------------------------------------------------------
             df_results_sample = pd.Series(name=n_samples)
@@ -685,37 +831,50 @@ def synthetic_benchmark_feature_selection(
             for i in estimators.keys():
                 for j in list(p_metrics.keys()) + ["NB_FEATURES"]:
                     df_results_sample.loc[f"{i}_{j}_Mean"] = np.mean(
-                        scores_df[f"{i}_{j}"])
+                        scores_df[f"{i}_{j}"]
+                    )
                     df_results_sample.loc[f"{i}_{j}_Std"] = np.std(
-                        scores_df[f"{i}_{j}"])
+                        scores_df[f"{i}_{j}"]
+                    )
                     dict_results[n_samples][f"{i}_{j}"] = scores_df[f"{i}_{j}"]
 
             # Storing other metrics
             for i in estimators.keys():
-                for j in (list(f_metrics.keys()) + list(f_array_metrics.keys()) + list(p_metrics.keys()) + ["NB_FEATURES"]):
-                    iqr_ground = np.percentile(
-                        scores_df[f"{i}_{j}"], [75, 25])
-                    df_results_sample.loc[f'{i}_{j}_Perf_Median'] = np.median(
-                        scores_df[f"{i}_{j}"])
-                    df_results_sample.loc[f'{i}_{j}_Perf_Q1'] = iqr_ground[1]
-                    df_results_sample.loc[f'{i}_{j}_Perf_Q3'] = iqr_ground[0]
+                for j in (
+                    list(f_metrics.keys())
+                    + list(f_array_metrics.keys())
+                    + list(p_metrics.keys())
+                    + ["NB_FEATURES"]
+                ):
+                    iqr_ground = np.percentile(scores_df[f"{i}_{j}"], [75, 25])
+                    df_results_sample.loc[f"{i}_{j}_Perf_Median"] = np.median(
+                        scores_df[f"{i}_{j}"]
+                    )
+                    df_results_sample.loc[f"{i}_{j}_Perf_Q1"] = iqr_ground[1]
+                    df_results_sample.loc[f"{i}_{j}_Perf_Q3"] = iqr_ground[0]
 
-            df_results.loc[df_results_sample.name, df_results_sample.index] = df_results_sample
+            df_results.loc[df_results_sample.name, df_results_sample.index] = (
+                df_results_sample
+            )
             print(df_results.shape)
 
         # -----------------------------------------------------------------------------------
         # SAVING FDR MIN THRESHOLDS
-        folder = f"./{result_folder_title}/NbInfo={n_info}/Predictions/" \
+        folder = (
+            f"./{result_folder_title}/NbInfo={n_info}/Predictions/"
             f"Raw_predictions_NbSamples={n_samples}"
+        )
         print(fdr_min_thresholds)
         for model_name, v in estimators.items():
             if isinstance(v, Stabl):
                 df_threshold = pd.DataFrame(data=fdr_min_thresholds[model_name])
                 df_threshold.index = [f"Exp{j}" for j in range(n_experiments)]
                 df_threshold.columns = [f"NbSamples={j}" for j in n_samples_list]
-                df_threshold.to_csv(f"./{result_folder_title}/NbInfo={n_info}/df_thresholds_{model_name}.csv")
+                df_threshold.to_csv(
+                    f"./{result_folder_title}/NbInfo={n_info}/df_thresholds_{model_name}.csv"
+                )
 
-        metrics_path = f'./{result_folder_title}/NbInfo={n_info}/Metrics'
+        metrics_path = f"./{result_folder_title}/NbInfo={n_info}/Metrics"
         os.makedirs(metrics_path, exist_ok=True)
 
         df_results.to_csv(Path(metrics_path, "df_results.csv"))
@@ -723,7 +882,7 @@ def synthetic_benchmark_feature_selection(
         for i, j in dict_results.items():
             j.to_csv(Path(metrics_path, "dict_results", f"dict_results_sample_{i}.csv"))
 
-        for i in (list(f_metrics.keys()) + list(f_array_metrics.keys())):
+        for i in list(f_metrics.keys()) + list(f_array_metrics.keys()):
             path = Path(metrics_path, i)
             os.makedirs(path, exist_ok=True)
             save_metric_graph(df_results, estimators.keys(), path, name=i)
@@ -732,31 +891,31 @@ def synthetic_benchmark_feature_selection(
             path = Path(metrics_path, i)
             os.makedirs(path, exist_ok=True)
             save_continuous_scores(
-                dict_results, estimators.keys(), path, i, base_estim=base_estim)
+                dict_results, estimators.keys(), path, i, base_estim=base_estim
+            )
 
 
 def synthetic_benchmark_feature_selection_multiomics(
-        X,
-        estimators,
-        preprocess_transformer=StandardScaler(),
-        n_informative_list=[25],
-        n_samples_list=[30, 40, 50, 75, 100, 150, 250, 350, 500, 750, 1000],
-        n_experiments=30,
-        result_folder_title="Synthetic Results",
-        f_number=[0.1, 0.5, 1],
-        output_type="linear",
-        input_type="normal",
-        verbose=0,
-        snr=2,
-        scale_u=2,
-        sgl_corr_percentile=99,
-        sgl_groups=None,
-        base_estim=["alasso", "lasso", "en", "sgl"],
-        multiomics=False,
-        omics_features=None,
-        omics_info=None,
-        n_iter=1000,
-
+    X,
+    estimators,
+    preprocess_transformer=StandardScaler(),
+    n_informative_list=[25],
+    n_samples_list=[30, 40, 50, 75, 100, 150, 250, 350, 500, 750, 1000],
+    n_experiments=30,
+    result_folder_title="Synthetic Results",
+    f_number=[0.1, 0.5, 1],
+    output_type="linear",
+    input_type="normal",
+    verbose=0,
+    snr=2,
+    scale_u=2,
+    sgl_corr_percentile=99,
+    sgl_groups=None,
+    base_estim=["alasso", "lasso", "en", "sgl"],
+    multiomics=False,
+    omics_features=None,
+    omics_info=None,
+    n_iter=1000,
 ):
     """Run benchmark on synthetic data in regression task
 
@@ -798,7 +957,13 @@ def synthetic_benchmark_feature_selection_multiomics(
         f_number = [f_number]
     verbose_array = bin(verbose + 64)[-5:]  # 64 = 100000
 
-    for n_info in (pbar_info := tqdm(n_informative_list, total=len(n_informative_list), disable=verbose_array[3] == '0')):
+    for n_info in (
+        pbar_info := tqdm(
+            n_informative_list,
+            total=len(n_informative_list),
+            disable=verbose_array[3] == "0",
+        )
+    ):
         pbar_info.set_description_str(f"[n_informative={n_info}]")
 
         X_train, X_test, y_train, y_test = make_train_test(
@@ -810,29 +975,35 @@ def synthetic_benchmark_feature_selection_multiomics(
             input_type=input_type,
             multiomics=multiomics,
             omics_features=omics_features,
-            omics_info=omics_info
+            omics_info=omics_info,
         )
 
         task_type = "binary" if output_type == "binary" else "regression"
 
         X_train_tot = pd.concat(X_train.values(), axis=1)
-        groud_truth_features = ['Ft_' + str(i) for i in range(25)]
+        groud_truth_features = ["Ft_" + str(i) for i in range(25)]
         groud_truth_features_array = np.zeros(X.shape[1])
         for f in groud_truth_features:
             groud_truth_features_array[X_train_tot.columns.get_loc(f)] = 1
 
         df_results = pd.DataFrame(data=None, index=n_samples_list)
         dict_results = {}
-        df_results.index.name = 'nb_samples'
+        df_results.index.name = "nb_samples"
 
-        for n_samples in (pbar_sample := tqdm(n_samples_list, total=len(n_samples_list), disable=verbose_array[2] == '0')):
-            pbar_sample.set_description_str(f"[n_informative={n_info}, n_samples={n_samples}]")
+        for n_samples in (
+            pbar_sample := tqdm(
+                n_samples_list,
+                total=len(n_samples_list),
+                disable=verbose_array[2] == "0",
+            )
+        ):
+            pbar_sample.set_description_str(
+                f"[n_informative={n_info}, n_samples={n_samples}]"
+            )
 
-            all_values = {k: [] for k in estimators.keys()}
             all_preds = {k: [] for k in estimators.keys()}
 
             f_metrics = {**feature_metrics, **fscore_metrics(f_number)}
-            f_array_metrics = features_array_metrics
 
             if output_type == "binary":
                 p_metrics = binary_prediction_metrics
@@ -840,24 +1011,28 @@ def synthetic_benchmark_feature_selection_multiomics(
                 p_metrics = regression_prediction_metrics
 
             scores = {
-                k: [] for k in (
-                    list(f_metrics.keys()) +
-                    list(p_metrics.keys()) +
-                    ["NB_FEATURES"]
+                k: []
+                for k in (
+                    list(f_metrics.keys()) + list(p_metrics.keys()) + ["NB_FEATURES"]
                 )
             }
 
             estimators_scores = {k: deepcopy(scores) for k in estimators.keys()}
             rng = np.random.RandomState(42)
 
-            for iteration in (pbar_exp := tqdm(range(n_experiments), total=n_experiments, disable=verbose_array[1] == '0')):
-                pbar_exp.set_description_str(f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}]")
+            for iteration in (
+                pbar_exp := tqdm(
+                    range(n_experiments),
+                    total=n_experiments,
+                    disable=verbose_array[1] == "0",
+                )
+            ):
+                pbar_exp.set_description_str(
+                    f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}]"
+                )
 
                 y_subtrain = resample(
-                    y_train,
-                    n_samples=n_samples,
-                    replace=False,
-                    random_state=rng
+                    y_train, n_samples=n_samples, replace=False, random_state=rng
                 )
 
                 X_train_tot = pd.concat(X_train.values(), axis=1).loc[y_subtrain.index]
@@ -870,7 +1045,9 @@ def synthetic_benchmark_feature_selection_multiomics(
                     iter_features[k] = []
                     if not isinstance(v, Stabl):
                         train_predictions[k] = pd.DataFrame(columns=X_train.keys())
-                        test_predictions[k] = pd.DataFrame(columns=X_train.keys(), index=X_test_tot.index)
+                        test_predictions[k] = pd.DataFrame(
+                            columns=X_train.keys(), index=X_test_tot.index
+                        )
 
                 for omic_name, omic_df in X_train.items():
                     X_subtrain = omic_df.loc[y_subtrain.index]
@@ -880,16 +1057,24 @@ def synthetic_benchmark_feature_selection_multiomics(
                     X_subtrain = pd.DataFrame(
                         data=X_subtrain_p,
                         index=X_subtrain.index,
-                        columns=preprocess_transformer.get_feature_names_out()
+                        columns=preprocess_transformer.get_feature_names_out(),
                     )
                     X_subtest = pd.DataFrame(
                         data=preprocess_transformer.transform(X_subtest),
                         index=X_subtest.index,
-                        columns=preprocess_transformer.get_feature_names_out()
+                        columns=preprocess_transformer.get_feature_names_out(),
                     )
 
-                    for k, v in (pbar_estim := tqdm(estimators.items(), total=len(estimators), disable=verbose_array[0] == '0')):
-                        pbar_estim.set_description_str(f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}, estimator={k}]")
+                    for k, v in (
+                        pbar_estim := tqdm(
+                            estimators.items(),
+                            total=len(estimators),
+                            disable=verbose_array[0] == "0",
+                        )
+                    ):
+                        pbar_estim.set_description_str(
+                            f"[n_informative={n_info}, n_samples={n_samples}, iteration={iteration + 1}, estimator={k}]"
+                        )
                         v = clone(v)
                         if isinstance(v, Stabl):
                             stabl_model = v
@@ -900,8 +1085,13 @@ def synthetic_benchmark_feature_selection_multiomics(
                                     lambda_grid = np.linspace(min_C, min_C * 100, 5)
                                     prev_lambda_grid = {"C": lambda_grid}
                                 else:
-                                    l_max = np.linalg.norm(X_subtrain.values.T@y_subtrain, np.inf)/X_subtrain.shape[0]
-                                    lambda_grid = np.geomspace(l_max/30, l_max + 5, 5)
+                                    l_max = (
+                                        np.linalg.norm(
+                                            X_subtrain.values.T @ y_subtrain, np.inf
+                                        )
+                                        / X_subtrain.shape[0]
+                                    )
+                                    lambda_grid = np.geomspace(l_max / 30, l_max + 5, 5)
                                     prev_lambda_grid = {"alpha": lambda_grid}
                                 stabl_model.set_params(lambda_grid=prev_lambda_grid)
 
@@ -910,27 +1100,33 @@ def synthetic_benchmark_feature_selection_multiomics(
                             else:
                                 fdr_threshold_range = np.arange(0.1, 1, 0.01)
 
-                            stabl_model.set_params(fdr_threshold_range=fdr_threshold_range)
+                            stabl_model.set_params(
+                                fdr_threshold_range=fdr_threshold_range
+                            )
 
                             v = stabl_model
                         if k == "SGL":
                             if sgl_groups is None:
-                                groups_sgl = _make_groups(X_subtrain, sgl_corr_percentile)
+                                groups_sgl = _make_groups(
+                                    X_subtrain, sgl_corr_percentile
+                                )
                             else:
                                 groups_sgl = sgl_groups
 
-                            setattr(model.estimator, "groups", groups_sgl)
+                            setattr(v.estimator, "groups", groups_sgl)
 
                         fitted_est = v.fit(X_subtrain, y_subtrain)
 
                         if isinstance(v, Stabl):
-                            stabl_path = Path(f"./{result_folder_title}/NbInfo={n_info}/Stabl results {omic_name} n_samples={n_samples}/iteration {iteration}/{k}")
+                            stabl_path = Path(
+                                f"./{result_folder_title}/NbInfo={n_info}/Stabl results {omic_name} n_samples={n_samples}/iteration {iteration}/{k}"
+                            )
                             save_stabl_results(
                                 stabl=stabl_model,
                                 path=stabl_path,
                                 df_X=X_subtrain,
                                 y=y_subtrain,
-                                task_type=task_type
+                                task_type=task_type,
                             )
 
                             features = list(fitted_est.get_feature_names_out())
@@ -938,32 +1134,50 @@ def synthetic_benchmark_feature_selection_multiomics(
                             # print(f"{omic_name}", iter_features)
 
                         else:
-                            features = list(np.where(fitted_est.best_estimator_.coef_.flatten())[0])
+                            features = list(
+                                np.where(fitted_est.best_estimator_.coef_.flatten())[0]
+                            )
                             print(features)
-                            iter_features[k] += list(X_subtrain.iloc[:, features].columns)
-                            train_predictions[k][omic_name] = fitted_est.predict_proba(X_subtrain)[:, 1] if task_type == "binary" else fitted_est.predict(X_subtrain)
-                            test_predictions[k][omic_name] = fitted_est.predict_proba(X_subtest)[:, 1] if task_type == "binary" else fitted_est.predict(X_subtest)
+                            iter_features[k] += list(
+                                X_subtrain.iloc[:, features].columns
+                            )
+                            train_predictions[k][omic_name] = (
+                                fitted_est.predict_proba(X_subtrain)[:, 1]
+                                if task_type == "binary"
+                                else fitted_est.predict(X_subtrain)
+                            )
+                            test_predictions[k][omic_name] = (
+                                fitted_est.predict_proba(X_subtest)[:, 1]
+                                if task_type == "binary"
+                                else fitted_est.predict(X_subtest)
+                            )
 
                 for k, v in estimators.items():
-                    X_train_std = preprocess_transformer.fit_transform(X_train_tot[iter_features[k]])
+                    X_train_std = preprocess_transformer.fit_transform(
+                        X_train_tot[iter_features[k]]
+                    )
 
                     X_train_std = pd.DataFrame(
                         data=X_train_std,
                         index=X_train_tot.index,
-                        columns=preprocess_transformer.get_feature_names_out()
+                        columns=preprocess_transformer.get_feature_names_out(),
                     )
 
-                    X_test_std = preprocess_transformer.transform(X_test_tot[iter_features[k]])
+                    X_test_std = preprocess_transformer.transform(
+                        X_test_tot[iter_features[k]]
+                    )
 
                     X_test_std = pd.DataFrame(
                         data=X_test_std,
                         index=X_test_tot.index,
-                        columns=preprocess_transformer.get_feature_names_out()
+                        columns=preprocess_transformer.get_feature_names_out(),
                     )
 
                     # all_values[k].append(features_importances)
                     for n, f in f_metrics.items():
-                        estimators_scores[k][n].append(f(iter_features[k], groud_truth_features))
+                        estimators_scores[k][n].append(
+                            f(iter_features[k], groud_truth_features)
+                        )
 
                     # for n, f in f_array_metrics.items():
                     #     estimators_scores[k][n].append(f(groud_truth_features_array, features_importances))
@@ -972,11 +1186,15 @@ def synthetic_benchmark_feature_selection_multiomics(
 
                     if isinstance(v, Stabl):
                         if len(iter_features[k]) == 0:
-                            mean_score = 0.5 if output_type == "binary" else np.mean(y_subtrain)
+                            mean_score = (
+                                0.5 if output_type == "binary" else np.mean(y_subtrain)
+                            )
                             preds = np.zeros(X_test.shape[0]) + mean_score
                         else:
                             if output_type == "binary":
-                                model = LogisticRegression(penalty=None, max_iter=int(1e6), n_jobs=-1)
+                                model = LogisticRegression(
+                                    penalty=None, max_iter=int(1e6), n_jobs=-1
+                                )
                                 model.fit(X_train_std, y_subtrain)
                                 preds = model.predict_proba(X_test_std)[:, 1]
                             else:
@@ -985,15 +1203,27 @@ def synthetic_benchmark_feature_selection_multiomics(
                                 preds = model.predict(X_test_std)
                     else:
                         print(f"Late Fusion {k}")
-                        model_lf_path = Path(f"./{result_folder_title}/NbInfo={n_info}/Late Fusion results n_samples={n_samples}/iteration {iteration}/{k}")
+                        model_lf_path = Path(
+                            f"./{result_folder_title}/NbInfo={n_info}/Late Fusion results n_samples={n_samples}/iteration {iteration}/{k}"
+                        )
                         os.makedirs(model_lf_path, exist_ok=True)
                         predictions = train_predictions[k]
-                        stacked_df, weights = stacked_multi_omic(predictions, y_subtrain, task_type, n_iter=n_iter)
-                        weights.to_csv(Path(model_lf_path, f"Associated weights LF {k}.csv"))
+                        stacked_df, weights = stacked_multi_omic(
+                            predictions, y_subtrain, task_type, n_iter=n_iter
+                        )
+                        weights.to_csv(
+                            Path(model_lf_path, f"Associated weights LF {k}.csv")
+                        )
                         stacked_df.to_csv(
-                            Path(model_lf_path, f"Stacked Generalization predictions train LF {k}.csv"))
+                            Path(
+                                model_lf_path,
+                                f"Stacked Generalization predictions train LF {k}.csv",
+                            )
+                        )
                         valid_preds = test_predictions[k]
-                        preds = (pd.DataFrame(valid_preds) @ pd.DataFrame(weights)).sum(axis=1) / weights.sum().values
+                        preds = (pd.DataFrame(valid_preds) @ pd.DataFrame(weights)).sum(
+                            axis=1
+                        ) / weights.sum().values
                         ###
 
                         # run en late fusion
@@ -1012,45 +1242,50 @@ def synthetic_benchmark_feature_selection_multiomics(
             # SAVING RAW SCORES
             scores_path = f"./{result_folder_title}/NbInfo={n_info}/Scores"
             os.makedirs(scores_path, exist_ok=True)
-            scores_df = pd.DataFrame(data={
-                f"{m}_{k}": v for m in estimators.keys() for k, v in estimators_scores[m].items()
-            },
-                index=[
-                f"Experiment {i + 1}" for i in range(n_experiments)]
+            scores_df = pd.DataFrame(
+                data={
+                    f"{m}_{k}": v
+                    for m in estimators.keys()
+                    for k, v in estimators_scores[m].items()
+                },
+                index=[f"Experiment {i + 1}" for i in range(n_experiments)],
             )
             scores_df.to_csv(Path(scores_path, f"Raw_scores_NbSamples={n_samples}.csv"))
 
             # -----------------------------------------------------------------------------------
             # SAVING RAW WEIGHTS
-#             values_path = f"./{result_folder_title}/NbInfo={n_info}/Values/Raw_values_NbSamples={n_samples}"
-#             os.makedirs(values_path, exist_ok=True)
-#             for i in estimators.keys():
-#                 values_df = pd.DataFrame(data=all_values[i],
-#                                          index=[
-#                                              f"Experiment {j + 1}" for j in range(n_experiments)]
-#                                          )
-#                 values_df.to_csv(
-#                     Path(values_path, f"Raw_values_{i}_NbSamples={n_samples}.csv"))
+            #             values_path = f"./{result_folder_title}/NbInfo={n_info}/Values/Raw_values_NbSamples={n_samples}"
+            #             os.makedirs(values_path, exist_ok=True)
+            #             for i in estimators.keys():
+            #                 values_df = pd.DataFrame(data=all_values[i],
+            #                                          index=[
+            #                                              f"Experiment {j + 1}" for j in range(n_experiments)]
+            #                                          )
+            #                 values_df.to_csv(
+            #                     Path(values_path, f"Raw_values_{i}_NbSamples={n_samples}.csv"))
 
-#             # SAVING ROC CURVES
-#             roc_path = f"./{result_folder_title}/NbInfo={n_info}/ROC curves"
-#             os.makedirs(roc_path, exist_ok=True)
-#             save_roc_values(groud_truth_features_array, all_values, Path(
-#                 roc_path, f"ROC_NbSamples={n_samples}.pdf"))
+            #             # SAVING ROC CURVES
+            #             roc_path = f"./{result_folder_title}/NbInfo={n_info}/ROC curves"
+            #             os.makedirs(roc_path, exist_ok=True)
+            #             save_roc_values(groud_truth_features_array, all_values, Path(
+            #                 roc_path, f"ROC_NbSamples={n_samples}.pdf"))
 
             # -----------------------------------------------------------------------------------
             # SAVING RAW PREDICTIONS
-            folder = f"./{result_folder_title}/NbInfo={n_info}/Predictions/" \
-                     f"Raw_predictions_NbSamples={n_samples}"
+            folder = (
+                f"./{result_folder_title}/NbInfo={n_info}/Predictions/"
+                f"Raw_predictions_NbSamples={n_samples}"
+            )
             os.makedirs(folder, exist_ok=True)
             for name, preds in all_preds.items():
-                df_predictions = pd.DataFrame(data=np.array(preds).T,
-                                              columns=[
-                                                  f"Experiment {i}" for i in range(n_experiments)]
-                                              )
+                df_predictions = pd.DataFrame(
+                    data=np.array(preds).T,
+                    columns=[f"Experiment {i}" for i in range(n_experiments)],
+                )
                 df_predictions["Outcome"] = np.array(y_test)
                 df_predictions.to_csv(
-                    Path(folder, f"{name}_predictions_NbSamples={n_samples}.csv"))
+                    Path(folder, f"{name}_predictions_NbSamples={n_samples}.csv")
+                )
 
             # -----------------------------------------------------------------------------------
             df_results_sample = pd.Series(name=n_samples)
@@ -1061,37 +1296,43 @@ def synthetic_benchmark_feature_selection_multiomics(
             for i in estimators.keys():
                 for j in list(p_metrics.keys()) + ["NB_FEATURES"]:
                     df_results_sample.loc[f"{i}_{j}_Mean"] = np.mean(
-                        scores_df[f"{i}_{j}"])
+                        scores_df[f"{i}_{j}"]
+                    )
                     df_results_sample.loc[f"{i}_{j}_Std"] = np.std(
-                        scores_df[f"{i}_{j}"])
+                        scores_df[f"{i}_{j}"]
+                    )
                     dict_results[n_samples][f"{i}_{j}"] = scores_df[f"{i}_{j}"]
 
             # Storing other metrics
             for i in estimators.keys():
-                for j in (list(f_metrics.keys()) + list(p_metrics.keys()) + ["NB_FEATURES"]):
-                    iqr_ground = np.percentile(
-                        scores_df[f"{i}_{j}"], [75, 25])
-                    df_results_sample.loc[f'{i}_{j}_Perf_Median'] = np.median(
-                        scores_df[f"{i}_{j}"])
-                    df_results_sample.loc[f'{i}_{j}_Perf_Q1'] = iqr_ground[1]
-                    df_results_sample.loc[f'{i}_{j}_Perf_Q3'] = iqr_ground[0]
+                for j in (
+                    list(f_metrics.keys()) + list(p_metrics.keys()) + ["NB_FEATURES"]
+                ):
+                    iqr_ground = np.percentile(scores_df[f"{i}_{j}"], [75, 25])
+                    df_results_sample.loc[f"{i}_{j}_Perf_Median"] = np.median(
+                        scores_df[f"{i}_{j}"]
+                    )
+                    df_results_sample.loc[f"{i}_{j}_Perf_Q1"] = iqr_ground[1]
+                    df_results_sample.loc[f"{i}_{j}_Perf_Q3"] = iqr_ground[0]
 
-            df_results.loc[df_results_sample.name, df_results_sample.index] = df_results_sample
+            df_results.loc[df_results_sample.name, df_results_sample.index] = (
+                df_results_sample
+            )
             print(df_results.shape)
 
         # -----------------------------------------------------------------------------------
         # SAVING FDR MIN THRESHOLDS
-#         folder = f"./{result_folder_title}/NbInfo={n_info}/Predictions/" \
-#                      f"Raw_predictions_NbSamples={n_samples}"
-#         print(fdr_min_thresholds)
-#         for model_name, v in estimators.items():
-#             if isinstance(v, Stabl):
-#                 df_threshold = pd.DataFrame(data = fdr_min_thresholds[model_name])
-#                 df_threshold.index = [f"Exp{j}" for j in range(n_experiments)]
-#                 df_threshold.columns = [f"NbSamples={j}" for j in n_samples_list]
-#                 df_threshold.to_csv(f"./{result_folder_title}/NbInfo={n_info}/df_thresholds_{model_name}.csv")
+        #         folder = f"./{result_folder_title}/NbInfo={n_info}/Predictions/" \
+        #                      f"Raw_predictions_NbSamples={n_samples}"
+        #         print(fdr_min_thresholds)
+        #         for model_name, v in estimators.items():
+        #             if isinstance(v, Stabl):
+        #                 df_threshold = pd.DataFrame(data = fdr_min_thresholds[model_name])
+        #                 df_threshold.index = [f"Exp{j}" for j in range(n_experiments)]
+        #                 df_threshold.columns = [f"NbSamples={j}" for j in n_samples_list]
+        #                 df_threshold.to_csv(f"./{result_folder_title}/NbInfo={n_info}/df_thresholds_{model_name}.csv")
 
-        metrics_path = f'./{result_folder_title}/NbInfo={n_info}/Metrics'
+        metrics_path = f"./{result_folder_title}/NbInfo={n_info}/Metrics"
         os.makedirs(metrics_path, exist_ok=True)
 
         df_results.to_csv(Path(metrics_path, "df_results.csv"))
@@ -1099,7 +1340,7 @@ def synthetic_benchmark_feature_selection_multiomics(
         for i, j in dict_results.items():
             j.to_csv(Path(metrics_path, "dict_results", f"dict_results_sample_{i}.csv"))
 
-        for i in (list(f_metrics.keys())):
+        for i in list(f_metrics.keys()):
             path = Path(metrics_path, i)
             os.makedirs(path, exist_ok=True)
             save_metric_graph(df_results, estimators.keys(), path, name=i)
@@ -1108,4 +1349,5 @@ def synthetic_benchmark_feature_selection_multiomics(
             path = Path(metrics_path, i)
             os.makedirs(path, exist_ok=True)
             save_continuous_scores(
-                dict_results, estimators.keys(), path, i, base_estim=base_estim)
+                dict_results, estimators.keys(), path, i, base_estim=base_estim
+            )

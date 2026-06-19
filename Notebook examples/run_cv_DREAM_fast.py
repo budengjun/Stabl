@@ -15,22 +15,27 @@ N_OUTER_SPLITS, INNER_REPEATS, STABL_BOOTSTRAPS, and N_ITER_LF.
 """
 
 from julia.api import Julia
-jl = Julia(compiled_modules=False)
+
 
 import numpy as np
-import pandas as pd
 from stabl import data
-from stabl.multi_omic_pipelines import multi_omic_stabl_cv, multi_omic_stabl
-from sklearn.model_selection import RepeatedStratifiedKFold, GroupShuffleSplit, GridSearchCV, RepeatedKFold
-from sklearn.linear_model import LogisticRegression, Lasso, ElasticNet
+from stabl.multi_omic_pipelines import multi_omic_stabl_cv
+from sklearn.model_selection import (
+    RepeatedStratifiedKFold,
+    GroupShuffleSplit,
+    GridSearchCV,
+)
+from sklearn.linear_model import LogisticRegression
 from stabl.stabl import Stabl
-from stabl.adaptive import ALogitLasso, ALasso
-from groupyr import SGL, LogisticSGL
+from stabl.adaptive import ALogitLasso
+from groupyr import LogisticSGL
 from sklearn.base import clone
 
 # ---------------------------------------------------------------------
 # Fast/development controls
 # ---------------------------------------------------------------------
+
+jl = Julia(compiled_modules=False)
 random_seed = 42
 np.random.seed(random_seed)
 
@@ -67,7 +72,9 @@ outter_group_cv = GroupShuffleSplit(
 
 artificial_type = "knockoff"
 
-X_train, X_valid, y_train, y_valid, ids, task_type = data.load_dream("../Sample Data/Dream")
+X_train, X_valid, y_train, y_valid, ids, task_type = data.load_dream(
+    "../Sample Data/Dream"
+)
 y_train = y_train.astype(int)
 
 for name, df in X_train.items():
@@ -103,8 +110,8 @@ en = LogisticRegression(
     random_state=random_seed,
 )
 en_params = {
-    "C": np.logspace(-2, 1, 6),          # original: 10 values
-    "l1_ratio": [0.2, 0.5, 0.8],         # original equivalent: 3 values
+    "C": np.logspace(-2, 1, 6),  # original: 10 values
+    "l1_ratio": [0.2, 0.5, 0.8],  # original equivalent: 3 values
 }
 en_cv = GridSearchCV(
     en,
@@ -152,7 +159,7 @@ stabl = Stabl(
     lasso,
     n_bootstraps=STABL_BOOTSTRAPS_MAIN,
     artificial_type=artificial_type,
-    artificial_proportion=.5,
+    artificial_proportion=0.5,
     replace=False,
     fdr_threshold_range=np.arange(0.1, 1, 0.05),  # original step: 0.01
     sample_fraction=0.5,
@@ -173,9 +180,9 @@ stabl_en = clone(stabl).set_params(
     base_estimator=en,
     n_bootstraps=STABL_BOOTSTRAPS_SECONDARY,
     lambda_grid=[
-        {"C": np.logspace(-3, -2, 3), "l1_ratio": [.2]},
-        {"C": np.logspace(-3, -2, 3), "l1_ratio": [.5]},
-        {"C": np.logspace(-3, -2, 3), "l1_ratio": [.8]},
+        {"C": np.logspace(-3, -2, 3), "l1_ratio": [0.2]},
+        {"C": np.logspace(-3, -2, 3), "l1_ratio": [0.5]},
+        {"C": np.logspace(-3, -2, 3), "l1_ratio": [0.8]},
     ],
     verbose=0,
 )
@@ -185,9 +192,9 @@ stabl_sgl = clone(stabl).set_params(
     base_estimator=sgl,
     n_bootstraps=STABL_BOOTSTRAPS_SECONDARY,
     lambda_grid=[
-        {"alpha": np.logspace(-3, -2, 3), "l1_ratio": [.2]},
-        {"alpha": np.logspace(-3, -2, 3), "l1_ratio": [.5]},
-        {"alpha": np.logspace(-3, -2, 3), "l1_ratio": [.8]},
+        {"alpha": np.logspace(-3, -2, 3), "l1_ratio": [0.2]},
+        {"alpha": np.logspace(-3, -2, 3), "l1_ratio": [0.5]},
+        {"alpha": np.logspace(-3, -2, 3), "l1_ratio": [0.8]},
     ],
     verbose=0,
 )
@@ -218,7 +225,9 @@ models = [
 print("Run FAST CV on dream dataset")
 print(f"Outer splits: {OUTER_SPLITS}")
 print(f"Inner CV: {INNER_SPLITS} folds x {INNER_REPEATS} repeat(s)")
-print(f"STABL bootstraps: main={STABL_BOOTSTRAPS_MAIN}, secondary={STABL_BOOTSTRAPS_SECONDARY}")
+print(
+    f"STABL bootstraps: main={STABL_BOOTSTRAPS_MAIN}, secondary={STABL_BOOTSTRAPS_SECONDARY}"
+)
 print(f"Late fusion iterations: {N_ITER_LF}")
 print(f"Models: {models}")
 

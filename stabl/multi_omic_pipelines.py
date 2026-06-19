@@ -6,7 +6,11 @@ from .stacked_generalization import stacked_multi_omic
 from .metrics import jaccard_matrix
 from .stabl import save_stabl_results
 from .preprocessing import remove_low_info_samples, LowInfoFilter
-from sklearn.model_selection import RepeatedKFold, RepeatedStratifiedKFold, GroupShuffleSplit
+from sklearn.model_selection import (
+    RepeatedKFold,
+    RepeatedStratifiedKFold,
+    GroupShuffleSplit,
+)
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
@@ -21,9 +25,9 @@ import warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils._testing import ignore_warnings
 
-warnings.filterwarnings('ignore')
-warnings.simplefilter('ignore', category=ConvergenceWarning)
-ConvergenceWarning('ignore')
+warnings.filterwarnings("ignore")
+warnings.simplefilter("ignore", category=ConvergenceWarning)
+ConvergenceWarning("ignore")
 
 outter_cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=20, random_state=42)
 
@@ -33,7 +37,9 @@ inner_group_cv = GroupShuffleSplit(n_splits=25, test_size=0.2, random_state=42)
 
 nb_param = 50
 
-logit = LogisticRegression(penalty='none', class_weight="balanced", max_iter=int(1e6), random_state=42)
+logit = LogisticRegression(
+    penalty="none", class_weight="balanced", max_iter=int(1e6), random_state=42
+)
 linreg = LinearRegression()
 
 preprocessing = Pipeline(
@@ -41,7 +47,7 @@ preprocessing = Pipeline(
         ("variance", VarianceThreshold(0.01)),
         ("lif", LowInfoFilter()),
         ("impute", SimpleImputer(strategy="median")),
-        ("std", StandardScaler())
+        ("std", StandardScaler()),
     ]
 )
 
@@ -63,19 +69,19 @@ def _make_groups(X, percentile):
 
 @ignore_warnings(category=ConvergenceWarning)
 def multi_omic_stabl_cv(
-        data_dict,
-        y,
-        outer_splitter,
-        inner_splitter,
-        estimators,
-        task_type,
-        save_path,
-        models,
-        outer_groups=None,
-        early_fusion=False,
-        late_fusion=True,
-        n_iter_lf=10000,
-        sgl_corr_percentile=[90]
+    data_dict,
+    y,
+    outer_splitter,
+    inner_splitter,
+    estimators,
+    task_type,
+    save_path,
+    models,
+    outer_groups=None,
+    early_fusion=False,
+    late_fusion=True,
+    n_iter_lf=10000,
+    sgl_corr_percentile=[90],
 ):
     """
     Performs a cross validation on the data_dict using the models and saves the results in save_path.
@@ -179,16 +185,22 @@ def multi_omic_stabl_cv(
         stabl_features_dict[model] = dict()
         for omic_name in data_dict.keys():
             if "STABL" in model:
-                stabl_features_dict[model][omic_name] = pd.DataFrame(data=None, columns=["Threshold", "min FDP+"])
+                stabl_features_dict[model][omic_name] = pd.DataFrame(
+                    data=None, columns=["Threshold", "min FDP+"]
+                )
 
     k = 1
-    for train, test in (tbar := tqdm(
+    for train, test in (
+        tbar := tqdm(
             outer_splitter.split(X_tot, y, groups=outer_groups),
             total=outer_splitter.get_n_splits(X=X_tot, y=y, groups=outer_groups),
-            file=sys.stdout
-    )):
+            file=sys.stdout,
+        )
+    ):
         train_idx, test_idx = y.iloc[train].index, y.iloc[test].index
-        groups = outer_groups.loc[train_idx].values if outer_groups is not None else None
+        groups = (
+            outer_groups.loc[train_idx].values if outer_groups is not None else None
+        )
 
         predictions_dict_late_fusion = dict()
         fold_selected_features = dict()
@@ -197,9 +209,13 @@ def multi_omic_stabl_cv(
             if "STABL" not in model and "EF" not in model:
                 predictions_dict_late_fusion[model] = dict()
                 for omic_name in data_dict.keys():
-                    predictions_dict_late_fusion[model][omic_name] = pd.DataFrame(data=None, index=test_idx)
+                    predictions_dict_late_fusion[model][omic_name] = pd.DataFrame(
+                        data=None, index=test_idx
+                    )
 
-        tbar.set_description(f"{len(train_idx)} train samples, {len(test_idx)} test samples")
+        tbar.set_description(
+            f"{len(train_idx)} train samples, {len(test_idx)} test samples"
+        )
 
         for omic_name, X_omic in data_dict.items():
             test_idx_tmp = X_omic.index.intersection(test_idx)
@@ -213,13 +229,13 @@ def multi_omic_stabl_cv(
             X_tmp_std = pd.DataFrame(
                 data=preprocessing.fit_transform(X_tmp),
                 index=X_tmp.index,
-                columns=preprocessing.get_feature_names_out()
+                columns=preprocessing.get_feature_names_out(),
             )
 
             X_test_tmp_std = pd.DataFrame(
                 data=preprocessing.transform(X_test_tmp),
                 index=X_test_tmp.index,
-                columns=preprocessing.get_feature_names_out()
+                columns=preprocessing.get_feature_names_out(),
             )
 
             # __STABL__
@@ -233,15 +249,23 @@ def multi_omic_stabl_cv(
                     f"STABL Lasso finished on {omic_name} ({X_tmp.shape[0]} samples);"
                     f" {len(tmp_sel_features)} features selected"
                 )
-                stabl_features_dict["STABL Lasso"][omic_name].loc[f'Fold n°{k}', "min FDP+"] = stabl.min_fdr_
-                stabl_features_dict["STABL Lasso"][omic_name].loc[f'Fold n°{k}', "Threshold"] = stabl.fdr_min_threshold_
+                stabl_features_dict["STABL Lasso"][omic_name].loc[
+                    f"Fold n°{k}", "min FDP+"
+                ] = stabl.min_fdr_
+                stabl_features_dict["STABL Lasso"][omic_name].loc[
+                    f"Fold n°{k}", "Threshold"
+                ] = stabl.fdr_min_threshold_
                 if k == 1:
                     save_stabl_results(
                         stabl=stabl,
-                        path=Path(save_path, "Training CV", f"STABL Lasso results on {omic_name}"),
+                        path=Path(
+                            save_path,
+                            "Training CV",
+                            f"STABL Lasso results on {omic_name}",
+                        ),
                         df_X=X_tmp_std,
                         y=y_tmp,
-                        task_type=task_type
+                        task_type=task_type,
                     )
 
             if "STABL ALasso" in models:
@@ -254,15 +278,23 @@ def multi_omic_stabl_cv(
                     f"STABL ALasso finished on {omic_name} ({X_tmp.shape[0]} samples);"
                     f" {len(tmp_sel_features)} features selected"
                 )
-                stabl_features_dict["STABL ALasso"][omic_name].loc[f'Fold n°{k}', "min FDP+"] = stabl_alasso.min_fdr_
-                stabl_features_dict["STABL ALasso"][omic_name].loc[f'Fold n°{k}', "Threshold"] = stabl_alasso.fdr_min_threshold_
+                stabl_features_dict["STABL ALasso"][omic_name].loc[
+                    f"Fold n°{k}", "min FDP+"
+                ] = stabl_alasso.min_fdr_
+                stabl_features_dict["STABL ALasso"][omic_name].loc[
+                    f"Fold n°{k}", "Threshold"
+                ] = stabl_alasso.fdr_min_threshold_
                 if k == 1:
                     save_stabl_results(
                         stabl=stabl_alasso,
-                        path=Path(save_path, "Training CV", f"STABL ALasso results on {omic_name}"),
+                        path=Path(
+                            save_path,
+                            "Training CV",
+                            f"STABL ALasso results on {omic_name}",
+                        ),
                         df_X=X_tmp_std,
                         y=y_tmp,
-                        task_type=task_type
+                        task_type=task_type,
                     )
 
             if "STABL ElasticNet" in models:
@@ -275,37 +307,57 @@ def multi_omic_stabl_cv(
                     f"STABL ElasticNet finished on {omic_name} ({X_tmp.shape[0]} samples);"
                     f" {len(tmp_sel_features)} features selected"
                 )
-                stabl_features_dict["STABL ElasticNet"][omic_name].loc[f'Fold n°{k}', "min FDP+"] = stabl_en.min_fdr_
-                stabl_features_dict["STABL ElasticNet"][omic_name].loc[f'Fold n°{k}', "Threshold"] = stabl_en.fdr_min_threshold_
+                stabl_features_dict["STABL ElasticNet"][omic_name].loc[
+                    f"Fold n°{k}", "min FDP+"
+                ] = stabl_en.min_fdr_
+                stabl_features_dict["STABL ElasticNet"][omic_name].loc[
+                    f"Fold n°{k}", "Threshold"
+                ] = stabl_en.fdr_min_threshold_
                 if k == 1:
                     save_stabl_results(
                         stabl=stabl_en,
-                        path=Path(save_path, "Training CV", f"STABL ElasticNet results on {omic_name}"),
+                        path=Path(
+                            save_path,
+                            "Training CV",
+                            f"STABL ElasticNet results on {omic_name}",
+                        ),
                         df_X=X_tmp_std,
                         y=y_tmp,
-                        task_type=task_type
+                        task_type=task_type,
                     )
             for sgl_corr in sgl_corr_percentile:
                 if f"STABL SGL-{sgl_corr}" in models:
                     # fit STABL SGL-0.5
                     print(f"Fitting of STABL SGL-{sgl_corr}")
-                    stabl_sgl_corr = clone(stabl_sgl).set_params(perc_corr_group_threshold=sgl_corr)
+                    stabl_sgl_corr = clone(stabl_sgl).set_params(
+                        perc_corr_group_threshold=sgl_corr
+                    )
                     stabl_sgl_corr.fit(X_tmp_std, y_tmp, groups=groups)
                     tmp_sel_features = list(stabl_sgl_corr.get_feature_names_out())
-                    fold_selected_features[f"STABL SGL-{sgl_corr}"].extend(tmp_sel_features)
+                    fold_selected_features[f"STABL SGL-{sgl_corr}"].extend(
+                        tmp_sel_features
+                    )
                     print(
                         f"STABL SGL-{sgl_corr} finished on {omic_name} ({X_tmp.shape[0]} samples);"
                         f" {len(tmp_sel_features)} features selected"
                     )
-                    stabl_features_dict[f"STABL SGL-{sgl_corr}"][omic_name].loc[f'Fold n°{k}', "min FDP+"] = stabl_sgl_corr.min_fdr_
-                    stabl_features_dict[f"STABL SGL-{sgl_corr}"][omic_name].loc[f'Fold n°{k}', "Threshold"] = stabl_sgl_corr.fdr_min_threshold_
+                    stabl_features_dict[f"STABL SGL-{sgl_corr}"][omic_name].loc[
+                        f"Fold n°{k}", "min FDP+"
+                    ] = stabl_sgl_corr.min_fdr_
+                    stabl_features_dict[f"STABL SGL-{sgl_corr}"][omic_name].loc[
+                        f"Fold n°{k}", "Threshold"
+                    ] = stabl_sgl_corr.fdr_min_threshold_
                     if k == 1:
                         save_stabl_results(
                             stabl=stabl_sgl_corr,
-                            path=Path(save_path, "Training CV", f"STABL SGL-{sgl_corr} results on {omic_name}"),
+                            path=Path(
+                                save_path,
+                                "Training CV",
+                                f"STABL SGL-{sgl_corr} results on {omic_name}",
+                            ),
                             df_X=X_tmp_std,
                             y=y_tmp,
-                            task_type=task_type
+                            task_type=task_type,
                         )
 
             if "Lasso" in models:
@@ -313,48 +365,72 @@ def multi_omic_stabl_cv(
                 print("Fitting of Lasso")
                 model = clone(lasso)
                 if task_type == "binary":
-                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict_proba(X_test_tmp_std)[:, 1]
+                    predictions = model.fit(
+                        X_tmp_std, y_tmp, groups=groups
+                    ).predict_proba(X_test_tmp_std)[:, 1]
                 else:
-                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict(X_test_tmp_std)
-                tmp_sel_features = list(X_tmp_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict(
+                        X_test_tmp_std
+                    )
+                tmp_sel_features = list(
+                    X_tmp_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+                )
                 fold_selected_features["Lasso"].extend(tmp_sel_features)
                 print(
                     f"Lasso finished on {omic_name} ({X_tmp_std.shape[0]} samples);"
                     f" {len(tmp_sel_features)} features selected"
                 )
-                predictions_dict_late_fusion["Lasso"][omic_name].loc[test_idx_tmp, f"Fold n°{k}"] = predictions
+                predictions_dict_late_fusion["Lasso"][omic_name].loc[
+                    test_idx_tmp, f"Fold n°{k}"
+                ] = predictions
 
             if "ALasso" in models:
                 # __ALasso__
                 print("Fitting of ALasso")
                 model = clone(alasso)
                 if task_type == "binary":
-                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict_proba(X_test_tmp_std)[:, 1]
+                    predictions = model.fit(
+                        X_tmp_std, y_tmp, groups=groups
+                    ).predict_proba(X_test_tmp_std)[:, 1]
                 else:
-                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict(X_test_tmp_std)
-                tmp_sel_features = list(X_tmp_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict(
+                        X_test_tmp_std
+                    )
+                tmp_sel_features = list(
+                    X_tmp_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+                )
                 fold_selected_features["ALasso"].extend(tmp_sel_features)
                 print(
                     f"ALasso finished on {omic_name} ({X_tmp_std.shape[0]} samples);"
                     f" {len(tmp_sel_features)} features selected"
                 )
-                predictions_dict_late_fusion["ALasso"][omic_name].loc[test_idx_tmp, f"Fold n°{k}"] = predictions
+                predictions_dict_late_fusion["ALasso"][omic_name].loc[
+                    test_idx_tmp, f"Fold n°{k}"
+                ] = predictions
 
             if "ElasticNet" in models:
                 # __EN__
                 print("Fitting of ElasticNet")
                 model = clone(en)
                 if task_type == "binary":
-                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict_proba(X_test_tmp_std)[:, 1]
+                    predictions = model.fit(
+                        X_tmp_std, y_tmp, groups=groups
+                    ).predict_proba(X_test_tmp_std)[:, 1]
                 else:
-                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict(X_test_tmp_std)
-                tmp_sel_features = list(X_tmp_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                    predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict(
+                        X_test_tmp_std
+                    )
+                tmp_sel_features = list(
+                    X_tmp_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+                )
                 fold_selected_features["ElasticNet"].extend(tmp_sel_features)
                 print(
                     f"ElasticNet finished on {omic_name} ({X_tmp_std.shape[0]} samples);"
                     f" {len(tmp_sel_features)} features selected"
                 )
-                predictions_dict_late_fusion["ElasticNet"][omic_name].loc[test_idx_tmp, f"Fold n°{k}"] = predictions
+                predictions_dict_late_fusion["ElasticNet"][omic_name].loc[
+                    test_idx_tmp, f"Fold n°{k}"
+                ] = predictions
 
             for sgl_corr in sgl_corr_percentile:
                 if f"SGL-{sgl_corr}" in models:
@@ -364,45 +440,60 @@ def multi_omic_stabl_cv(
                     groups_sgl = _make_groups(X_tmp_std, sgl_corr)
                     setattr(model.estimator, "groups", groups_sgl)
                     if task_type == "binary":
-                        predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict_proba(X_test_tmp_std)[:, 1]
+                        predictions = model.fit(
+                            X_tmp_std, y_tmp, groups=groups
+                        ).predict_proba(X_test_tmp_std)[:, 1]
                     else:
-                        predictions = model.fit(X_tmp_std, y_tmp, groups=groups).predict(X_test_tmp_std)
-                    tmp_sel_features = list(X_tmp_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                        predictions = model.fit(
+                            X_tmp_std, y_tmp, groups=groups
+                        ).predict(X_test_tmp_std)
+                    tmp_sel_features = list(
+                        X_tmp_std.columns[
+                            np.where(model.best_estimator_.coef_.flatten())
+                        ]
+                    )
                     fold_selected_features[f"SGL-{sgl_corr}"].extend(tmp_sel_features)
                     print(
                         f"SGL-{sgl_corr} finished on {omic_name} ({X_tmp_std.shape[0]} samples);"
                         f" {len(tmp_sel_features)} features selected"
                     )
-                    predictions_dict_late_fusion[f"SGL-{sgl_corr}"][omic_name].loc[test_idx_tmp, f"Fold n°{k}"] = predictions
+                    predictions_dict_late_fusion[f"SGL-{sgl_corr}"][omic_name].loc[
+                        test_idx_tmp, f"Fold n°{k}"
+                    ] = predictions
 
         for model in filter(lambda x: "STABL" in x, models):
             X_train = X_tot.loc[train_idx, fold_selected_features[model]]
             X_test = X_tot.loc[test_idx, fold_selected_features[model]]
-            y_train, y_test = y.loc[train_idx], y.loc[test_idx]
+            y_train = y.loc[train_idx]
 
             if len(fold_selected_features[model]) > 0:
                 # Standardization
                 std_pipe = Pipeline(
                     steps=[
-                        ('imputer', SimpleImputer(strategy="median")),
-                        ('std', StandardScaler())
+                        ("imputer", SimpleImputer(strategy="median")),
+                        ("std", StandardScaler()),
                     ]
                 )
 
                 X_train = pd.DataFrame(
                     data=std_pipe.fit_transform(X_train),
                     index=X_train.index,
-                    columns=X_train.columns
+                    columns=X_train.columns,
                 )
                 X_test = pd.DataFrame(
                     data=std_pipe.transform(X_test),
                     index=X_test.index,
-                    columns=X_test.columns
+                    columns=X_test.columns,
                 )
 
                 # __Final Models__
                 if task_type == "binary":
-                    predictions = clone(logit).fit(X_train, y_train).predict_proba(X_test)[:, 1].flatten()
+                    predictions = (
+                        clone(logit)
+                        .fit(X_train, y_train)
+                        .predict_proba(X_test)[:, 1]
+                        .flatten()
+                    )
 
                 elif task_type == "regression":
                     predictions = clone(linreg).fit(X_train, y_train).predict(X_test)
@@ -414,20 +505,28 @@ def multi_omic_stabl_cv(
 
             else:
                 if task_type == "binary":
-                    predictions_dict[model].loc[test_idx, f'Fold n°{k}'] = [0.5] * len(test_idx)
+                    predictions_dict[model].loc[test_idx, f"Fold n°{k}"] = [0.5] * len(
+                        test_idx
+                    )
 
                 elif task_type == "regression":
-                    predictions_dict[model].loc[test_idx, f'Fold n°{k}'] = [np.mean(y_train)] * len(test_idx)
+                    predictions_dict[model].loc[test_idx, f"Fold n°{k}"] = [
+                        np.mean(y_train)
+                    ] * len(test_idx)
 
                 else:
                     raise ValueError("task_type not recognized.")
         # __late fusion__
         if late_fusion:
             preds_lf = late_fusion_cv(
-                predictions_dict_late_fusion, y[test_idx], task_type, Path(save_path, "Training CV"), n_iter=n_iter_lf
+                predictions_dict_late_fusion,
+                y[test_idx],
+                task_type,
+                Path(save_path, "Training CV"),
+                n_iter=n_iter_lf,
             )
             for model in preds_lf:
-                predictions_dict[model].loc[test_idx, f'Fold n°{k}'] = preds_lf[model]
+                predictions_dict[model].loc[test_idx, f"Fold n°{k}"] = preds_lf[model]
 
         # __EF Lasso__
         if early_fusion:
@@ -437,13 +536,13 @@ def multi_omic_stabl_cv(
             X_train_std = pd.DataFrame(
                 data=preprocessing.fit_transform(X_train),
                 columns=preprocessing.get_feature_names_out(),
-                index=X_train.index
+                index=X_train.index,
             )
 
             X_test_std = pd.DataFrame(
                 data=preprocessing.transform(X_test),
                 columns=preprocessing.get_feature_names_out(),
-                index=X_test.index
+                index=X_test.index,
             )
             groups = outer_groups[train_idx] if outer_groups is not None else None
 
@@ -452,10 +551,16 @@ def multi_omic_stabl_cv(
                 print("Fitting of EF Lasso")
                 model = clone(lasso)
                 if task_type == "binary":
-                    predictions = model.fit(X_train_std, y_train, groups=groups).predict_proba(X_test_std)[:, 1]
+                    predictions = model.fit(
+                        X_train_std, y_train, groups=groups
+                    ).predict_proba(X_test_std)[:, 1]
                 else:
-                    predictions = model.fit(X_train_std, y_train, groups=groups).predict(X_test_std)
-                tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                    predictions = model.fit(
+                        X_train_std, y_train, groups=groups
+                    ).predict(X_test_std)
+                tmp_sel_features = list(
+                    X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+                )
                 fold_selected_features["EF Lasso"] = tmp_sel_features
                 print(
                     f"EF Lasso finished on {omic_name} ({X_train_std.shape[0]} samples);"
@@ -468,10 +573,16 @@ def multi_omic_stabl_cv(
                 print("Fitting of EF ALasso")
                 model = clone(alasso)
                 if task_type == "binary":
-                    predictions = model.fit(X_train_std, y_train, groups=groups).predict_proba(X_test_std)[:, 1]
+                    predictions = model.fit(
+                        X_train_std, y_train, groups=groups
+                    ).predict_proba(X_test_std)[:, 1]
                 else:
-                    predictions = model.fit(X_train_std, y_train, groups=groups).predict(X_test_std)
-                tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                    predictions = model.fit(
+                        X_train_std, y_train, groups=groups
+                    ).predict(X_test_std)
+                tmp_sel_features = list(
+                    X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+                )
                 fold_selected_features["EF ALasso"] = tmp_sel_features
                 print(
                     f"EF ALasso finished on {omic_name} ({X_train_std.shape[0]} samples);"
@@ -484,16 +595,24 @@ def multi_omic_stabl_cv(
                 print("Fitting of EF ElasticNet")
                 model = clone(en)
                 if task_type == "binary":
-                    predictions = model.fit(X_train_std, y_train, groups=groups).predict_proba(X_test_std)[:, 1]
+                    predictions = model.fit(
+                        X_train_std, y_train, groups=groups
+                    ).predict_proba(X_test_std)[:, 1]
                 else:
-                    predictions = model.fit(X_train_std, y_train, groups=groups).predict(X_test_std)
-                tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                    predictions = model.fit(
+                        X_train_std, y_train, groups=groups
+                    ).predict(X_test_std)
+                tmp_sel_features = list(
+                    X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+                )
                 fold_selected_features["EF ElasticNet"] = tmp_sel_features
                 print(
                     f"EF ElasticNet finished on {omic_name} ({X_train_std.shape[0]} samples);"
                     f" {len(tmp_sel_features)} features selected"
                 )
-                predictions_dict["EF ElasticNet"].loc[test_idx, f"Fold n°{k}"] = predictions
+                predictions_dict["EF ElasticNet"].loc[test_idx, f"Fold n°{k}"] = (
+                    predictions
+                )
 
             for sgl_corr in sgl_corr_percentile:
                 if f"EF SGL-{sgl_corr}" in models:
@@ -503,20 +622,32 @@ def multi_omic_stabl_cv(
                     groups_sgl = _make_groups(X_train_std, sgl_corr)
                     setattr(model.estimator, "groups", groups_sgl)
                     if task_type == "binary":
-                        predictions = model.fit(X_train_std, y_train, groups=groups).predict_proba(X_test_std)[:, 1]
+                        predictions = model.fit(
+                            X_train_std, y_train, groups=groups
+                        ).predict_proba(X_test_std)[:, 1]
                     else:
-                        predictions = model.fit(X_train_std, y_train, groups=groups).predict(X_test_std)
-                    tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                        predictions = model.fit(
+                            X_train_std, y_train, groups=groups
+                        ).predict(X_test_std)
+                    tmp_sel_features = list(
+                        X_train_std.columns[
+                            np.where(model.best_estimator_.coef_.flatten())
+                        ]
+                    )
                     fold_selected_features[f"EF SGL-{sgl_corr}"] = tmp_sel_features
                     print(
                         f"EF SGL-{sgl_corr} finished on {omic_name} ({X_train_std.shape[0]} samples);"
                         f" {len(tmp_sel_features)} features selected"
                     )
-                    predictions_dict[f"EF SGL-{sgl_corr}"].loc[test_idx, f"Fold n°{k}"] = predictions
+                    predictions_dict[f"EF SGL-{sgl_corr}"].loc[
+                        test_idx, f"Fold n°{k}"
+                    ] = predictions
 
         print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         for model in models:
-            print(f"This fold: {len(fold_selected_features[model])} features selected for {model}")
+            print(
+                f"This fold: {len(fold_selected_features[model])} features selected for {model}"
+            )
             selected_features_dict[model].append(fold_selected_features[model])
         print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
@@ -534,36 +665,48 @@ def multi_omic_stabl_cv(
     formatted_features_dict = dict()
 
     for model in models:
-
         jaccard_matrix_dict[model] = jaccard_matrix(selected_features_dict[model])
 
         formatted_features_dict[model] = pd.DataFrame(
             data={
                 "Fold selected features": selected_features_dict[model],
-                "Fold nb of features": [len(el) for el in selected_features_dict[model]]
+                "Fold nb of features": [
+                    len(el) for el in selected_features_dict[model]
+                ],
             },
-            index=[f"Fold {i}" for i in range(outer_splitter.get_n_splits(X=X_tot))]
+            index=[f"Fold {i}" for i in range(outer_splitter.get_n_splits(X=X_tot))],
         )
-        formatted_features_dict[model].to_csv(Path(cv_res_path, f"Selected Features {model}.csv"))
+        formatted_features_dict[model].to_csv(
+            Path(cv_res_path, f"Selected Features {model}.csv")
+        )
         if "STABL" in model:
             for omic_name, val in stabl_features_dict[model].items():
                 os.makedirs(Path(cv_res_path, f"Stabl features {model}"), exist_ok=True)
-                val.to_csv(Path(cv_res_path, f"Stabl features {model}", f"Stabl features {model} {omic_name}.csv"))
+                val.to_csv(
+                    Path(
+                        cv_res_path,
+                        f"Stabl features {model}",
+                        f"Stabl features {model} {omic_name}.csv",
+                    )
+                )
 
-    predictions_dict = {model: predictions_dict[model].median(axis=1) for model in predictions_dict.keys()}
+    predictions_dict = {
+        model: predictions_dict[model].median(axis=1)
+        for model in predictions_dict.keys()
+    }
 
     table_of_scores = compute_scores_table(
         predictions_dict=predictions_dict,
         y=y,
         task_type=task_type,
-        selected_features_dict=formatted_features_dict
+        selected_features_dict=formatted_features_dict,
     )
 
     p_values = compute_pvalues_table(
         predictions_dict=predictions_dict,
         y=y,
         task_type=task_type,
-        selected_features_dict=formatted_features_dict
+        selected_features_dict=formatted_features_dict,
     )
 
     table_of_scores.to_csv(Path(summary_res_path, "Scores training CV.csv"))
@@ -578,27 +721,27 @@ def multi_omic_stabl_cv(
         predictions_dict=predictions_dict,
         y=y,
         task_type=task_type,
-        save_path=cv_res_path
+        save_path=cv_res_path,
     )
 
     return predictions_dict
 
 
 def multi_omic_stabl(
-        data_dict,
-        y,
-        splitter,
-        estimators,
-        task_type,
-        save_path,
-        models,
-        stabl_params=None,
-        groups=None,
-        early_fusion=False,
-        X_test=None,
-        y_test=None,
-        n_iter_lf=10000,
-        sgl_corr_percentile=[90]
+    data_dict,
+    y,
+    splitter,
+    estimators,
+    task_type,
+    save_path,
+    models,
+    stabl_params=None,
+    groups=None,
+    early_fusion=False,
+    X_test=None,
+    y_test=None,
+    n_iter_lf=10000,
+    sgl_corr_percentile=[90],
 ):
     """
     Performs a cross validation on the data_dict using the models and saves the results in save_path.
@@ -646,7 +789,7 @@ def multi_omic_stabl(
         - "STABL SGL-95" : Stabl with SGL with 0.95 as correlation threshold as base estimator
 
     stabl_params: dict, default=None
-        Dictionary containing the parameters to use for STABL. It overrides default settings. It is used to change Stabl parameters between omics. 
+        Dictionary containing the parameters to use for STABL. It overrides default settings. It is used to change Stabl parameters between omics.
         It is of the form :
         {
             "STABL model" : {
@@ -714,12 +857,16 @@ def multi_omic_stabl(
     predictions_dict_train_late_fusion = dict()
     for model in models:
         if "STABL" not in model and "EF" not in model:
-            predictions_dict_train_late_fusion[model] = pd.DataFrame(data=None, columns=data_dict.keys(), index=y.index)
+            predictions_dict_train_late_fusion[model] = pd.DataFrame(
+                data=None, columns=data_dict.keys(), index=y.index
+            )
     predictions_dict_test_late_fusion = dict()
     if X_test is not None and y_test is not None:
         for model in models:
             if "STABL" not in model and "EF" not in model:
-                predictions_dict_test_late_fusion[model] = pd.DataFrame(data=None, columns=X_test.keys(), index=y_test.index)
+                predictions_dict_test_late_fusion[model] = pd.DataFrame(
+                    data=None, columns=X_test.keys(), index=y_test.index
+                )
 
     for omic_name, X_omic in data_dict.items():
         all_columns = X_omic.columns
@@ -732,21 +879,24 @@ def multi_omic_stabl(
         X_omic_std = pd.DataFrame(
             data=preprocessing.fit_transform(X_omic[all_columns]),
             index=X_omic.index,
-            columns=preprocessing.get_feature_names_out()
+            columns=preprocessing.get_feature_names_out(),
         )
         y_omic = y.loc[X_omic_std.index]
         if X_test is not None:
             X_test_omic_std = pd.DataFrame(
                 data=preprocessing.transform(X_test[omic_name][all_columns]),
                 index=X_test[omic_name].index,
-                columns=preprocessing.get_feature_names_out()
+                columns=preprocessing.get_feature_names_out(),
             )
 
         # __STABL__
         if "STABL Lasso" in models:
             # fit STABL Lasso
             print(f"Fitting of STABL Lasso on {omic_name}")
-            if "STABL Lasso" in stabl_params and omic_name in stabl_params["STABL Lasso"]:
+            if (
+                "STABL Lasso" in stabl_params
+                and omic_name in stabl_params["STABL Lasso"]
+            ):
                 stabl.set_params(lambda_grid=stabl_params["STABL Lasso"][omic_name])
             stabl.fit(X_omic_std, y_omic, groups=groups)
             tmp_sel_features = list(stabl.get_feature_names_out())
@@ -757,17 +907,26 @@ def multi_omic_stabl(
             )
             save_stabl_results(
                 stabl=stabl,
-                path=Path(save_path, "Training-Validation", f"STABL Lasso results on {omic_name}"),
+                path=Path(
+                    save_path,
+                    "Training-Validation",
+                    f"STABL Lasso results on {omic_name}",
+                ),
                 df_X=X_omic,
                 y=y_omic,
-                task_type=task_type
+                task_type=task_type,
             )
 
         if "STABL ALasso" in models:
             # fit STABL ALasso
             print(f"Fitting of STABL ALasso on {omic_name}")
-            if "STABL ALasso" in stabl_params and omic_name in stabl_params["STABL ALasso"]:
-                stabl_alasso.set_params(lambda_grid=stabl_params["STABL ALasso"][omic_name])
+            if (
+                "STABL ALasso" in stabl_params
+                and omic_name in stabl_params["STABL ALasso"]
+            ):
+                stabl_alasso.set_params(
+                    lambda_grid=stabl_params["STABL ALasso"][omic_name]
+                )
             stabl_alasso.fit(X_omic_std, y_omic, groups=groups)
             tmp_sel_features = list(stabl_alasso.get_feature_names_out())
             selected_features_dict["STABL ALasso"].extend(tmp_sel_features)
@@ -777,17 +936,26 @@ def multi_omic_stabl(
             )
             save_stabl_results(
                 stabl=stabl_alasso,
-                path=Path(save_path, "Training-Validation", f"STABL ALasso results on {omic_name}"),
+                path=Path(
+                    save_path,
+                    "Training-Validation",
+                    f"STABL ALasso results on {omic_name}",
+                ),
                 df_X=X_omic,
                 y=y_omic,
-                task_type=task_type
+                task_type=task_type,
             )
 
         if "STABL ElasticNet" in models:
             # fit STABL ElasticNet
             print(f"Fitting of STABL ElasticNet on {omic_name}")
-            if "STABL ElasticNet" in stabl_params and omic_name in stabl_params["STABL ElasticNet"]:
-                stabl_en.set_params(lambda_grid=stabl_params["STABL ElasticNet"][omic_name])
+            if (
+                "STABL ElasticNet" in stabl_params
+                and omic_name in stabl_params["STABL ElasticNet"]
+            ):
+                stabl_en.set_params(
+                    lambda_grid=stabl_params["STABL ElasticNet"][omic_name]
+                )
             stabl_en.fit(X_omic_std, y_omic, groups=groups)
             tmp_sel_features = list(stabl_en.get_feature_names_out())
             selected_features_dict["STABL ElasticNet"].extend(tmp_sel_features)
@@ -797,19 +965,30 @@ def multi_omic_stabl(
             )
             save_stabl_results(
                 stabl=stabl_en,
-                path=Path(save_path, "Training-Validation", f"STABL ElasticNet results on {omic_name}"),
+                path=Path(
+                    save_path,
+                    "Training-Validation",
+                    f"STABL ElasticNet results on {omic_name}",
+                ),
                 df_X=X_omic,
                 y=y_omic,
-                task_type=task_type
+                task_type=task_type,
             )
 
         for sgl_corr in sgl_corr_percentile:
             if f"STABL SGL-{sgl_corr}" in models:
                 # fit STABL SGL-0.5
                 print(f"Fitting of STABL SGL-{sgl_corr} on {omic_name}")
-                if f"STABL SGL-{sgl_corr}" in stabl_params and omic_name in stabl_params[f"STABL SGL-{sgl_corr}"]:
-                    stabl_sgl.set_params(lambda_grid=stabl_params[f"STABL SGL-{sgl_corr}"][omic_name])
-                stabl_sgl_corr = clone(stabl_sgl).set_params(perc_corr_group_threshold=sgl_corr)
+                if (
+                    f"STABL SGL-{sgl_corr}" in stabl_params
+                    and omic_name in stabl_params[f"STABL SGL-{sgl_corr}"]
+                ):
+                    stabl_sgl.set_params(
+                        lambda_grid=stabl_params[f"STABL SGL-{sgl_corr}"][omic_name]
+                    )
+                stabl_sgl_corr = clone(stabl_sgl).set_params(
+                    perc_corr_group_threshold=sgl_corr
+                )
                 stabl_sgl_corr.fit(X_omic_std, y_omic, groups=groups)
                 tmp_sel_features = list(stabl_sgl_corr.get_feature_names_out())
                 selected_features_dict[f"STABL SGL-{sgl_corr}"].extend(tmp_sel_features)
@@ -819,10 +998,14 @@ def multi_omic_stabl(
                 )
                 save_stabl_results(
                     stabl=stabl_sgl_corr,
-                    path=Path(save_path, "Training-Validation", f"STABL SGL-{sgl_corr} results on {omic_name}"),
+                    path=Path(
+                        save_path,
+                        "Training-Validation",
+                        f"STABL SGL-{sgl_corr} results on {omic_name}",
+                    ),
                     df_X=X_omic,
                     y=y_omic,
-                    task_type=task_type
+                    task_type=task_type,
                 )
 
         if "Lasso" in models:
@@ -831,7 +1014,7 @@ def multi_omic_stabl(
             model = clone(lasso)
             try:
                 model = model.fit(X_omic_std, y_omic, groups=groups)
-            except:
+            except TypeError:
                 model = model.fit(X_omic_std, y_omic)
 
             model = model.best_estimator_
@@ -849,20 +1032,35 @@ def multi_omic_stabl(
             )
 
             base_linear_model_coef = pd.DataFrame(
-                {"Feature": tmp_sel_features,
-                 "Associated weight": model.coef_.flatten()[np.where(model.coef_.flatten())]
-                 }
+                {
+                    "Feature": tmp_sel_features,
+                    "Associated weight": model.coef_.flatten()[
+                        np.where(model.coef_.flatten())
+                    ],
+                }
             ).set_index("Feature")
-            base_linear_model_coef.to_csv(Path(save_path, "Training-Validation", f"Lasso coefficients {omic_name}.csv"))
+            base_linear_model_coef.to_csv(
+                Path(
+                    save_path,
+                    "Training-Validation",
+                    f"Lasso coefficients {omic_name}.csv",
+                )
+            )
 
-            predictions_dict_train_late_fusion["Lasso"].loc[X_omic.index, omic_name] = predictions
+            predictions_dict_train_late_fusion["Lasso"].loc[X_omic.index, omic_name] = (
+                predictions
+            )
             if X_test is not None:
                 if task_type == "binary":
                     predictions = model.predict_proba(X_test_omic_std)[:, 1]
                 else:
                     predictions = model.predict(X_test_omic_std)
-                predictions_dict_test_late_fusion["Lasso"].loc[X_test_omic_std.index, omic_name] = predictions
-                predictions_dict_test_late_fusion["Lasso"].fillna(np.median(predictions_dict_train_late_fusion["Lasso"]), inplace=True)
+                predictions_dict_test_late_fusion["Lasso"].loc[
+                    X_test_omic_std.index, omic_name
+                ] = predictions
+                predictions_dict_test_late_fusion["Lasso"].fillna(
+                    np.median(predictions_dict_train_late_fusion["Lasso"]), inplace=True
+                )
 
         if "ALasso" in models:
             # __ALasso__
@@ -870,7 +1068,7 @@ def multi_omic_stabl(
             model = clone(alasso)
             try:
                 model = model.fit(X_omic_std, y_omic, groups=groups)
-            except:
+            except TypeError:
                 model = model.fit(X_omic_std, y_omic)
 
             model = model.best_estimator_
@@ -888,20 +1086,36 @@ def multi_omic_stabl(
             )
 
             base_linear_model_coef = pd.DataFrame(
-                {"Feature": tmp_sel_features,
-                 "Associated weight": model.coef_.flatten()[np.where(model.coef_.flatten())]
-                 }
+                {
+                    "Feature": tmp_sel_features,
+                    "Associated weight": model.coef_.flatten()[
+                        np.where(model.coef_.flatten())
+                    ],
+                }
             ).set_index("Feature")
-            base_linear_model_coef.to_csv(Path(save_path, "Training-Validation", f"ALasso coefficients {omic_name}.csv"))
+            base_linear_model_coef.to_csv(
+                Path(
+                    save_path,
+                    "Training-Validation",
+                    f"ALasso coefficients {omic_name}.csv",
+                )
+            )
 
-            predictions_dict_train_late_fusion["ALasso"].loc[X_omic.index, omic_name] = predictions
+            predictions_dict_train_late_fusion["ALasso"].loc[
+                X_omic.index, omic_name
+            ] = predictions
             if X_test is not None:
                 if task_type == "binary":
                     predictions = model.predict_proba(X_test_omic_std)[:, 1]
                 else:
                     predictions = model.predict(X_test_omic_std)
-                predictions_dict_test_late_fusion["ALasso"].loc[X_test_omic_std.index, omic_name] = predictions
-                predictions_dict_test_late_fusion["ALasso"].fillna(np.median(predictions_dict_train_late_fusion["ALasso"]), inplace=True)
+                predictions_dict_test_late_fusion["ALasso"].loc[
+                    X_test_omic_std.index, omic_name
+                ] = predictions
+                predictions_dict_test_late_fusion["ALasso"].fillna(
+                    np.median(predictions_dict_train_late_fusion["ALasso"]),
+                    inplace=True,
+                )
 
         if "ElasticNet" in models:
             # __EN__
@@ -909,7 +1123,7 @@ def multi_omic_stabl(
             model = clone(en)
             try:
                 model = model.fit(X_omic_std, y_omic, groups=groups)
-            except:
+            except TypeError:
                 model = model.fit(X_omic_std, y_omic)
 
             model = model.best_estimator_
@@ -927,20 +1141,36 @@ def multi_omic_stabl(
             )
 
             base_linear_model_coef = pd.DataFrame(
-                {"Feature": tmp_sel_features,
-                 "Associated weight": model.coef_.flatten()[np.where(model.coef_.flatten())]
-                 }
+                {
+                    "Feature": tmp_sel_features,
+                    "Associated weight": model.coef_.flatten()[
+                        np.where(model.coef_.flatten())
+                    ],
+                }
             ).set_index("Feature")
-            base_linear_model_coef.to_csv(Path(save_path, "Training-Validation", f"ElasticNet coefficients {omic_name}.csv"))
+            base_linear_model_coef.to_csv(
+                Path(
+                    save_path,
+                    "Training-Validation",
+                    f"ElasticNet coefficients {omic_name}.csv",
+                )
+            )
 
-            predictions_dict_train_late_fusion["ElasticNet"].loc[X_omic.index, omic_name] = predictions
+            predictions_dict_train_late_fusion["ElasticNet"].loc[
+                X_omic.index, omic_name
+            ] = predictions
             if X_test is not None:
                 if task_type == "binary":
                     predictions = model.predict_proba(X_test_omic_std)[:, 1]
                 else:
                     predictions = model.predict(X_test_omic_std)
-                predictions_dict_test_late_fusion["ElasticNet"].loc[X_test_omic_std.index, omic_name] = predictions
-                predictions_dict_test_late_fusion["ElasticNet"].fillna(np.median(predictions_dict_train_late_fusion["ElasticNet"]), inplace=True)
+                predictions_dict_test_late_fusion["ElasticNet"].loc[
+                    X_test_omic_std.index, omic_name
+                ] = predictions
+                predictions_dict_test_late_fusion["ElasticNet"].fillna(
+                    np.median(predictions_dict_train_late_fusion["ElasticNet"]),
+                    inplace=True,
+                )
 
         for sgl_corr in sgl_corr_percentile:
             if f"SGL-{sgl_corr}" in models:
@@ -953,7 +1183,7 @@ def multi_omic_stabl(
 
                 try:
                     model = model.fit(X_omic_std, y_omic, groups=groups)
-                except:
+                except TypeError:
                     model = model.fit(X_omic_std, y_omic)
 
                 model = model.best_estimator_
@@ -963,7 +1193,9 @@ def multi_omic_stabl(
                 else:
                     predictions = model.predict(X_omic_std)
 
-                tmp_sel_features = list(X_omic_std.columns[np.where(model.coef_.flatten())])
+                tmp_sel_features = list(
+                    X_omic_std.columns[np.where(model.coef_.flatten())]
+                )
                 selected_features_dict[f"SGL-{sgl_corr}"].extend(tmp_sel_features)
                 print(
                     f"SGL-{sgl_corr} finished on {omic_name} ({X_omic_std.shape[0]} samples);"
@@ -971,24 +1203,38 @@ def multi_omic_stabl(
                 )
 
                 base_linear_model_coef = pd.DataFrame(
-                    {"Feature": tmp_sel_features,
-                     "Associated weight": model.coef_.flatten()[np.where(model.coef_.flatten())]
-                     }
+                    {
+                        "Feature": tmp_sel_features,
+                        "Associated weight": model.coef_.flatten()[
+                            np.where(model.coef_.flatten())
+                        ],
+                    }
                 ).set_index("Feature")
-                base_linear_model_coef.to_csv(Path(save_path, "Training-Validation", f"SGL-{sgl_corr} coefficients {omic_name}.csv"))
+                base_linear_model_coef.to_csv(
+                    Path(
+                        save_path,
+                        "Training-Validation",
+                        f"SGL-{sgl_corr} coefficients {omic_name}.csv",
+                    )
+                )
 
-                predictions_dict_train_late_fusion[f"SGL-{sgl_corr}"].loc[X_omic.index, omic_name] = predictions
+                predictions_dict_train_late_fusion[f"SGL-{sgl_corr}"].loc[
+                    X_omic.index, omic_name
+                ] = predictions
                 if X_test is not None:
                     if task_type == "binary":
                         predictions = model.predict_proba(X_test_omic_std)[:, 1]
                     else:
                         predictions = model.predict(X_test_omic_std)
-                    predictions_dict_test_late_fusion[f"SGL-{sgl_corr}"].loc[X_test_omic_std.index, omic_name] = predictions
-                    predictions_dict_test_late_fusion[f"SGL-{sgl_corr}"].fillna(np.median(predictions_dict_train_late_fusion[f"SGL-{sgl_corr}"]), inplace=True)
-
-    final_prepro = Pipeline(
-        steps=[("impute", SimpleImputer(strategy="median")), ("std", StandardScaler())]
-    )
+                    predictions_dict_test_late_fusion[f"SGL-{sgl_corr}"].loc[
+                        X_test_omic_std.index, omic_name
+                    ] = predictions
+                    predictions_dict_test_late_fusion[f"SGL-{sgl_corr}"].fillna(
+                        np.median(
+                            predictions_dict_train_late_fusion[f"SGL-{sgl_corr}"]
+                        ),
+                        inplace=True,
+                    )
 
     for model in filter(lambda x: "STABL" in x, models):
         if len(selected_features_dict[model]) > 0:
@@ -996,7 +1242,7 @@ def multi_omic_stabl(
             X_train_std = pd.DataFrame(
                 data=preprocessing.fit_transform(X_train),
                 index=X_tot.index,
-                columns=preprocessing.get_feature_names_out()
+                columns=preprocessing.get_feature_names_out(),
             )
 
             if task_type == "binary":
@@ -1007,17 +1253,22 @@ def multi_omic_stabl(
 
             base_linear_model.fit(X_train_std, y)
             base_linear_model_coef = pd.DataFrame(
-                {"Feature": selected_features_dict[model],
-                 "Associated weight": base_linear_model.coef_.flatten()
-                 }
+                {
+                    "Feature": selected_features_dict[model],
+                    "Associated weight": base_linear_model.coef_.flatten(),
+                }
             ).set_index("Feature")
-            base_linear_model_coef.to_csv(Path(save_path, "Training-Validation", f"{model} coefficients.csv"))
+            base_linear_model_coef.to_csv(
+                Path(save_path, "Training-Validation", f"{model} coefficients.csv")
+            )
 
             if X_test is not None:
                 X_test_std = pd.DataFrame(
-                    data=preprocessing.transform(X_test_tot[selected_features_dict[model]]),
+                    data=preprocessing.transform(
+                        X_test_tot[selected_features_dict[model]]
+                    ),
                     index=X_test_tot.index,
-                    columns=preprocessing.get_feature_names_out()
+                    columns=preprocessing.get_feature_names_out(),
                 )
                 if task_type == "binary":
                     model_preds = base_linear_model.predict_proba(X_test_std)[:, 1]
@@ -1032,13 +1283,18 @@ def multi_omic_stabl(
                     model_preds[:] = np.mean(y)
         if X_test is not None:
             predictions_dict[model] = pd.Series(
-                model_preds,
-                index=y_test.index,
-                name=f"{model} predictions"
+                model_preds, index=y_test.index, name=f"{model} predictions"
             )
 
     # __late fusion__
-    preds_lf = late_fusion_validation(predictions_dict_train_late_fusion, predictions_dict_test_late_fusion, y, task_type, Path(save_path, "Training-Validation"), n_iter=n_iter_lf)
+    preds_lf = late_fusion_validation(
+        predictions_dict_train_late_fusion,
+        predictions_dict_test_late_fusion,
+        y,
+        task_type,
+        Path(save_path, "Training-Validation"),
+        n_iter=n_iter_lf,
+    )
     if preds_lf is not None:
         for model in preds_lf:
             predictions_dict[model] = preds_lf[model]
@@ -1048,14 +1304,14 @@ def multi_omic_stabl(
         X_train_std = pd.DataFrame(
             data=preprocessing.fit_transform(X_tot),
             index=X_tot.index,
-            columns=preprocessing.get_feature_names_out()
+            columns=preprocessing.get_feature_names_out(),
         )
 
         if X_test is not None:
             X_test_std = pd.DataFrame(
                 data=preprocessing.transform(X_test_tot),
                 index=X_test_tot.index,
-                columns=preprocessing.get_feature_names_out()
+                columns=preprocessing.get_feature_names_out(),
             )
 
         if "EF Lasso" in models:
@@ -1064,17 +1320,24 @@ def multi_omic_stabl(
             model = clone(lasso)
             try:
                 model.fit(X_train_std, y, groups=groups)
-            except:
+            except TypeError:
                 model.fit(X_train_std, y)
-            tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+            tmp_sel_features = list(
+                X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+            )
             selected_features_dict["EF Lasso"] = tmp_sel_features
 
             model_coef = pd.DataFrame(
-                {"Feature": selected_features_dict["EF Lasso"],
-                 "Associated weight": model.best_estimator_.coef_.flatten()[np.where(model.best_estimator_.coef_.flatten())]
-                 }
+                {
+                    "Feature": selected_features_dict["EF Lasso"],
+                    "Associated weight": model.best_estimator_.coef_.flatten()[
+                        np.where(model.best_estimator_.coef_.flatten())
+                    ],
+                }
             ).set_index("Feature")
-            model_coef.to_csv(Path(save_path, "Training-Validation", "EF Lasso coefficients.csv"))
+            model_coef.to_csv(
+                Path(save_path, "Training-Validation", "EF Lasso coefficients.csv")
+            )
 
             print(
                 f"EF Lasso finished on {omic_name} ({X_train_std.shape[0]} samples);"
@@ -1086,9 +1349,7 @@ def multi_omic_stabl(
                 else:
                     predictions = model.predict(X_test_std)
                 predictions_dict["EF Lasso"] = pd.Series(
-                    predictions,
-                    index=y_test.index,
-                    name=f"EF Lasso predictions"
+                    predictions, index=y_test.index, name="EF Lasso predictions"
                 )
 
         if "EF ALasso" in models:
@@ -1097,17 +1358,24 @@ def multi_omic_stabl(
             model = clone(alasso)
             try:
                 model.fit(X_train_std, y, groups=groups)
-            except:
+            except TypeError:
                 model.fit(X_train_std, y)
-            tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+            tmp_sel_features = list(
+                X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+            )
             selected_features_dict["EF ALasso"] = tmp_sel_features
 
             model_coef = pd.DataFrame(
-                {"Feature": selected_features_dict["EF ALasso"],
-                 "Associated weight": model.best_estimator_.coef_.flatten()[np.where(model.best_estimator_.coef_.flatten())]
-                 }
+                {
+                    "Feature": selected_features_dict["EF ALasso"],
+                    "Associated weight": model.best_estimator_.coef_.flatten()[
+                        np.where(model.best_estimator_.coef_.flatten())
+                    ],
+                }
             ).set_index("Feature")
-            model_coef.to_csv(Path(save_path, "Training-Validation", "EF ALasso coefficients.csv"))
+            model_coef.to_csv(
+                Path(save_path, "Training-Validation", "EF ALasso coefficients.csv")
+            )
 
             print(
                 f"EF ALasso finished on {omic_name} ({X_train_std.shape[0]} samples);"
@@ -1119,9 +1387,7 @@ def multi_omic_stabl(
                 else:
                     predictions = model.predict(X_test_std)
                 predictions_dict["EF ALasso"] = pd.Series(
-                    predictions,
-                    index=y_test.index,
-                    name=f"EF ALasso predictions"
+                    predictions, index=y_test.index, name="EF ALasso predictions"
                 )
 
         if "EF ElasticNet" in models:
@@ -1130,17 +1396,24 @@ def multi_omic_stabl(
             model = clone(en)
             try:
                 model.fit(X_train_std, y, groups=groups)
-            except:
+            except TypeError:
                 model.fit(X_train_std, y)
-            tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+            tmp_sel_features = list(
+                X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+            )
             selected_features_dict["EF ElasticNet"] = tmp_sel_features
 
             model_coef = pd.DataFrame(
-                {"Feature": selected_features_dict["EF ElasticNet"],
-                 "Associated weight": model.best_estimator_.coef_.flatten()[np.where(model.best_estimator_.coef_.flatten())]
-                 }
+                {
+                    "Feature": selected_features_dict["EF ElasticNet"],
+                    "Associated weight": model.best_estimator_.coef_.flatten()[
+                        np.where(model.best_estimator_.coef_.flatten())
+                    ],
+                }
             ).set_index("Feature")
-            model_coef.to_csv(Path(save_path, "Training-Validation", "EF ElasticNet coefficients.csv"))
+            model_coef.to_csv(
+                Path(save_path, "Training-Validation", "EF ElasticNet coefficients.csv")
+            )
 
             print(
                 f"EF ElasticNet finished on {omic_name} ({X_train_std.shape[0]} samples);"
@@ -1152,9 +1425,7 @@ def multi_omic_stabl(
                 else:
                     predictions = model.predict(X_test_std)
                 predictions_dict["EF ElasticNet"] = pd.Series(
-                    predictions,
-                    index=y_test.index,
-                    name=f"EF ElasticNet predictions"
+                    predictions, index=y_test.index, name="EF ElasticNet predictions"
                 )
         for sgl_corr in sgl_corr_percentile:
             if f"EF SGL-{sgl_corr}" in models:
@@ -1165,17 +1436,28 @@ def multi_omic_stabl(
                 setattr(model.estimator, "groups", groups_sgl)
                 try:
                     model.fit(X_train_std, y, groups=groups)
-                except:
+                except TypeError:
                     model.fit(X_train_std, y)
-                tmp_sel_features = list(X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())])
+                tmp_sel_features = list(
+                    X_train_std.columns[np.where(model.best_estimator_.coef_.flatten())]
+                )
                 selected_features_dict[f"EF SGL-{sgl_corr}"] = tmp_sel_features
 
                 model_coef = pd.DataFrame(
-                    {"Feature": selected_features_dict[f"EF SGL-{sgl_corr}"],
-                     "Associated weight": model.best_estimator_.coef_.flatten()[np.where(model.best_estimator_.coef_.flatten())]
-                     }
+                    {
+                        "Feature": selected_features_dict[f"EF SGL-{sgl_corr}"],
+                        "Associated weight": model.best_estimator_.coef_.flatten()[
+                            np.where(model.best_estimator_.coef_.flatten())
+                        ],
+                    }
                 ).set_index("Feature")
-                model_coef.to_csv(Path(save_path, "Training-Validation", f"EF SGL-{sgl_corr} coefficients.csv"))
+                model_coef.to_csv(
+                    Path(
+                        save_path,
+                        "Training-Validation",
+                        f"EF SGL-{sgl_corr} coefficients.csv",
+                    )
+                )
 
                 print(
                     f"EF SGL-{sgl_corr} finished on {omic_name} ({X_train_std.shape[0]} samples);"
@@ -1189,27 +1471,27 @@ def multi_omic_stabl(
                     predictions_dict[f"EF SGL-{sgl_corr}"] = pd.Series(
                         predictions,
                         index=y_test.index,
-                        name=f"EF SGL-{sgl_corr} predictions"
+                        name=f"EF SGL-{sgl_corr} predictions",
                     )
 
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     for model in models:
-        print(f"This fold: {len(selected_features_dict[model])} features selected for {model}")
+        print(
+            f"This fold: {len(selected_features_dict[model])} features selected for {model}"
+        )
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
     if X_test is not None:
         table_of_scores = compute_scores_table(
-            predictions_dict=predictions_dict,
-            y=y_test,
-            task_type=task_type
+            predictions_dict=predictions_dict, y=y_test, task_type=task_type
         )
         p_values = compute_pvalues_table(
-            predictions_dict=predictions_dict,
-            y=y_test,
-            task_type=task_type
+            predictions_dict=predictions_dict, y=y_test, task_type=task_type
         )
 
-        table_of_scores.to_csv(Path(save_path, "Training-Validation", "Scores on Validation.csv"))
+        table_of_scores.to_csv(
+            Path(save_path, "Training-Validation", "Scores on Validation.csv")
+        )
         table_of_scores.to_csv(Path(save_path, "Summary", "Scores on Validation.csv"))
 
         p_values_path = Path(Path(save_path, "Training-Validation"), "p-values")
@@ -1227,13 +1509,7 @@ def multi_omic_stabl(
     return predictions_dict
 
 
-def late_fusion_cv(
-    predictions_lf_dict,
-    y,
-    task_type,
-    save_path,
-    n_iter=10000
-):
+def late_fusion_cv(predictions_lf_dict, y, task_type, save_path, n_iter=10000):
     """
     Perform a late fusion of omics using the prediction of each model on the train set.
     It uses stacked_multi_omic to perform the late fusion.
@@ -1262,7 +1538,9 @@ def late_fusion_cv(
     """
     final_predictions_dict = {}
     os.makedirs(save_path, exist_ok=True)
-    for model_name, predictions in (tmodel := tqdm(predictions_lf_dict.items(), total=len(predictions_lf_dict))):
+    for model_name, predictions in (
+        tmodel := tqdm(predictions_lf_dict.items(), total=len(predictions_lf_dict))
+    ):
         tmodel.set_description(f"Late Fusion {model_name}")
 
         model_lf_path = Path(save_path, model_name)
@@ -1271,21 +1549,19 @@ def late_fusion_cv(
         preds_omics = pd.DataFrame(data=None, columns=predictions.keys())
         for omic_name, preds in predictions.items():
             preds_omics[omic_name] = preds.median(axis=1)
-        stacked_df, weights = stacked_multi_omic(preds_omics, y, task_type, n_iter=n_iter)
+        stacked_df, weights = stacked_multi_omic(
+            preds_omics, y, task_type, n_iter=n_iter
+        )
         weights.to_csv(Path(model_lf_path, f"Associated weights {model_name}.csv"))
         stacked_df.to_csv(
-            Path(model_lf_path, f"Stacked Generalization predictions {model_name}.csv"))
+            Path(model_lf_path, f"Stacked Generalization predictions {model_name}.csv")
+        )
         final_predictions_dict[model_name] = stacked_df["Stacked Gen. Predictions"]
     return final_predictions_dict
 
 
 def late_fusion_validation(
-    predictions_train_dict,
-    predictions_valid_dict,
-    y,
-    task_type,
-    save_path,
-    n_iter
+    predictions_train_dict, predictions_valid_dict, y, task_type, save_path, n_iter
 ):
     """Perform a late fusion of omics using the prediction of each model on the train set.
     It uses stacked_multi_omic to perform the late fusion.
@@ -1316,18 +1592,30 @@ def late_fusion_validation(
     """
     final_predictions_dict = {}
     os.makedirs(save_path, exist_ok=True)
-    for model_name, predictions in (tmodel := tqdm(predictions_train_dict.items(), total=len(predictions_train_dict))):
+    for model_name, predictions in (
+        tmodel := tqdm(
+            predictions_train_dict.items(), total=len(predictions_train_dict)
+        )
+    ):
         tmodel.set_description(f"Late Fusion {model_name}")
 
         model_lf_path = Path(save_path, model_name)
         os.makedirs(model_lf_path, exist_ok=True)
-        stacked_df, weights = stacked_multi_omic(predictions, y, task_type, n_iter=n_iter)
+        stacked_df, weights = stacked_multi_omic(
+            predictions, y, task_type, n_iter=n_iter
+        )
         weights.to_csv(Path(model_lf_path, f"Associated weights {model_name}.csv"))
         stacked_df.to_csv(
-            Path(model_lf_path, f"Stacked Generalization predictions train {model_name}.csv"))
+            Path(
+                model_lf_path,
+                f"Stacked Generalization predictions train {model_name}.csv",
+            )
+        )
         if predictions_valid_dict:
             valid_preds = predictions_valid_dict[model_name]
-            final_predictions_dict[model_name] = (valid_preds * weights["Associated weight"]).sum(axis=1) / weights["Associated weight"].sum()
+            final_predictions_dict[model_name] = (
+                valid_preds * weights["Associated weight"]
+            ).sum(axis=1) / weights["Associated weight"].sum()
     if predictions_valid_dict:
         return final_predictions_dict
     else:

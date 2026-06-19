@@ -9,7 +9,7 @@ def remove_low_info_samples(X, threshold=1.0):
 
     A sample is considered to have sufficient info if the nan fraction is below the
     input hard_threshold.
-    
+
     Parameters
     ----------
     X : {array-like, sparse matrix}, shape (n_repeats, n_features)
@@ -18,13 +18,13 @@ def remove_low_info_samples(X, threshold=1.0):
 
     threshold : float, default=1.0
         Samples with a proportion of NaN greater than this value will be removed.
-    
+
     Returns
     -------
     X_reduced : array, shape(n_samples_out, n_features)
         The reduced array of siwe n_samples_out, n_features
     """
-    if not isinstance(threshold, float) or (threshold < 0. or threshold > 1.):
+    if not isinstance(threshold, float) or (threshold < 0.0 or threshold > 1.0):
         raise ValueError(f"Nan fraction must be between 0 and 1 Got: {threshold}")
 
     nan_fraction = np.isnan(X).sum(1) / X.shape[1]
@@ -97,14 +97,17 @@ class LowInfoFilter(SelectorMixin, BaseEstimator):
 
         if self.max_nan_fraction > 1 or self.max_nan_fraction < 0:
             raise ValueError(
-                f"Nan fraction must be between 0 and 1 Got: {self.max_nan_fraction}")
+                f"Nan fraction must be between 0 and 1 Got: {self.max_nan_fraction}"
+            )
 
         n_samples = X.shape[0]
         self.n_samples = n_samples
         self.nan_counts_ = np.isnan(np.array(X)).sum(0)
 
-        if np.all(~np.isfinite(self.nan_counts_) | (
-                self.nan_counts_ > self.max_nan_fraction * self.n_samples)):
+        if np.all(
+            ~np.isfinite(self.nan_counts_)
+            | (self.nan_counts_ > self.max_nan_fraction * self.n_samples)
+        ):
             msg = "No feature in X meets the low info hard_threshold {0:.5f}"
             if n_samples == 1:
                 msg += " (X contains only one sample)"
@@ -114,14 +117,14 @@ class LowInfoFilter(SelectorMixin, BaseEstimator):
 
     def _get_support_mask(self):
         """Get a mask, or integer index, of the features selected
-            
+
         Returns
         -------
         support : array
             An index that selects the retained features from a feature vector.
             This is a boolean array of shape
             [# input features], in which an element is True iff its
-            corresponding feature is selected for retention. 
+            corresponding feature is selected for retention.
         """
         check_is_fitted(self)
 

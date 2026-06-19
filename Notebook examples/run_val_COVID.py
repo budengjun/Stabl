@@ -1,67 +1,103 @@
 from julia.api import Julia
-jl = Julia(compiled_modules=False)
+
 import numpy as np
-import pandas as pd
 from stabl import data
-from stabl.multi_omic_pipelines import multi_omic_stabl_cv, multi_omic_stabl
-from sklearn.model_selection import RepeatedStratifiedKFold, GroupShuffleSplit, GridSearchCV, RepeatedKFold
-from sklearn.linear_model import LogisticRegression, Lasso, ElasticNet
+from stabl.multi_omic_pipelines import multi_omic_stabl
+from sklearn.model_selection import (
+    RepeatedStratifiedKFold,
+    GroupShuffleSplit,
+    GridSearchCV,
+)
+from sklearn.linear_model import LogisticRegression
 from stabl.stabl import Stabl
-from stabl.adaptive import ALogitLasso, ALasso
-from groupyr import SGL, LogisticSGL
+from stabl.adaptive import ALogitLasso
+from groupyr import LogisticSGL
 from sklearn.base import clone
-from sklearn.exceptions import ConvergenceWarning
 import warnings
+
+jl = Julia(compiled_modules=False)
 
 random_state = 0
 outter_cv = GroupShuffleSplit(n_splits=25, test_size=0.2, random_state=random_state)
-chosen_inner_cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=random_state)
+chosen_inner_cv = RepeatedStratifiedKFold(
+    n_splits=5, n_repeats=5, random_state=random_state
+)
 
 artificial_type = "knockoff"
 task_type = "binary"
 
 # Lasso
-lasso = LogisticRegression(penalty="l1", class_weight="balanced", max_iter=int(1e6), solver="liblinear", random_state=random_state)
+lasso = LogisticRegression(
+    penalty="l1",
+    class_weight="balanced",
+    max_iter=int(1e6),
+    solver="liblinear",
+    random_state=random_state,
+)
 
-lasso_cv = GridSearchCV(lasso, param_grid={"C": np.logspace(-2, 2, 30)}, scoring="roc_auc", cv=chosen_inner_cv, n_jobs=-1)
+lasso_cv = GridSearchCV(
+    lasso,
+    param_grid={"C": np.logspace(-2, 2, 30)},
+    scoring="roc_auc",
+    cv=chosen_inner_cv,
+    n_jobs=-1,
+)
 
 # ElasticNet
 en = LogisticRegression(
-    penalty='elasticnet',
-    solver='saga',
-    class_weight='balanced',
+    penalty="elasticnet",
+    solver="saga",
+    class_weight="balanced",
     max_iter=int(1e4),
-    random_state=random_state
+    random_state=random_state,
 )
 en_params = {"C": np.logspace(-2, 1, 10), "l1_ratio": [0.5, 0.7, 0.9]}
-en_cv = GridSearchCV(en, param_grid=en_params, scoring="roc_auc", cv=chosen_inner_cv, n_jobs=-1)
+en_cv = GridSearchCV(
+    en, param_grid=en_params, scoring="roc_auc", cv=chosen_inner_cv, n_jobs=-1
+)
 
 # ALasso
-alasso = ALogitLasso(penalty="l1", solver="liblinear", max_iter=int(1e6), class_weight='balanced', random_state=random_state)
-alasso_cv = GridSearchCV(alasso, scoring='roc_auc', param_grid={"C": np.logspace(-2, 2, 20)}, cv=chosen_inner_cv, n_jobs=-1)
+alasso = ALogitLasso(
+    penalty="l1",
+    solver="liblinear",
+    max_iter=int(1e6),
+    class_weight="balanced",
+    random_state=random_state,
+)
+alasso_cv = GridSearchCV(
+    alasso,
+    scoring="roc_auc",
+    param_grid={"C": np.logspace(-2, 2, 20)},
+    cv=chosen_inner_cv,
+    n_jobs=-1,
+)
 
 # SGL
 sgl = LogisticSGL(max_iter=int(1e4), l1_ratio=0.5)
-sgl_cv = GridSearchCV(sgl, scoring='roc_auc', param_grid={"alpha": np.logspace(-1, 2, 5), "l1_ratio": [.5, .7, .9]}, cv=chosen_inner_cv, n_jobs=-1)
+sgl_cv = GridSearchCV(
+    sgl,
+    scoring="roc_auc",
+    param_grid={"alpha": np.logspace(-1, 2, 5), "l1_ratio": [0.5, 0.7, 0.9]},
+    cv=chosen_inner_cv,
+    n_jobs=-1,
+)
 
 # Stabl
 stabl = Stabl(
     lasso,
     n_bootstraps=5000,
     artificial_type=artificial_type,
-    artificial_proportion=1.,
+    artificial_proportion=1.0,
     replace=False,
     fdr_threshold_range=np.arange(0.1, 1, 0.01),
     sample_fraction=0.5,
     random_state=random_state,
     lambda_grid={"C": np.linspace(0.01, 1, 30)},
-    verbose=1
+    verbose=1,
 )
 
 stabl_alasso = clone(stabl).set_params(
-    base_estimator=alasso,
-    lambda_grid={"C": np.linspace(0.01, 10, 30)},
-    verbose=1
+    base_estimator=alasso, lambda_grid={"C": np.linspace(0.01, 10, 30)}, verbose=1
 )
 
 stabl_en = clone(stabl).set_params(
@@ -70,9 +106,10 @@ stabl_en = clone(stabl).set_params(
     lambda_grid=[
         {"C": np.logspace(-2, 1, 10), "l1_ratio": [0.5]},
         {"C": np.logspace(-2, 1, 10), "l1_ratio": [0.7]},
-        {"C": np.logspace(-2, 1, 10), "l1_ratio": [0.9]}
+        {"C": np.logspace(-2, 1, 10), "l1_ratio": [0.9]},
     ],
-    verbose=1)
+    verbose=1,
+)
 
 stabl_sgl = clone(stabl).set_params(
     base_estimator=sgl,
@@ -81,9 +118,10 @@ stabl_sgl = clone(stabl).set_params(
     lambda_grid=[
         {"alpha": np.logspace(-2, 1, 10), "l1_ratio": [0.5]},
         {"alpha": np.logspace(-2, 1, 10), "l1_ratio": [0.7]},
-        {"alpha": np.logspace(-2, 1, 10), "l1_ratio": [0.9]}
+        {"alpha": np.logspace(-2, 1, 10), "l1_ratio": [0.9]},
     ],
-    verbose=1)
+    verbose=1,
+)
 
 
 estimators = {
@@ -94,17 +132,22 @@ estimators = {
     "stabl_lasso": stabl,
     "stabl_alasso": stabl_alasso,
     "stabl_en": stabl_en,
-    "stabl_sgl": stabl_sgl
+    "stabl_sgl": stabl_sgl,
 }
 models = [
-    "STABL Lasso",  "Lasso",
-    "STABL ALasso",  "ALasso",
-    "STABL ElasticNet",  "ElasticNet",
+    "STABL Lasso",
+    "Lasso",
+    "STABL ALasso",
+    "ALasso",
+    "STABL ElasticNet",
+    "ElasticNet",
     # "STABL SGL-90", "SGL-90",
     # "STABL SGL-95", "SGL-95"
 ]
 
-X_train, X_valid, y_train, y_valid, ids, task_type = data.load_covid_19("./Sample Data/COVID-19")
+X_train, X_valid, y_train, y_valid, ids, task_type = data.load_covid_19(
+    "./Sample Data/COVID-19"
+)
 X_train["Proteomics"] = X_train["Proteomics"][X_valid["Proteomics"].columns]
 y_valid = y_valid.astype(int)
 y_train = y_train.astype(int)
@@ -126,5 +169,4 @@ multi_omic_stabl(
     n_iter_lf=1000,
     models=models,
     sgl_corr_percentile=[90, 95],
-
 )

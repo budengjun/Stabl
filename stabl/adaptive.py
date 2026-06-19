@@ -88,8 +88,7 @@ class ALasso(Lasso):
             warm_start=warm_start,
             positive=positive,
             random_state=random_state,
-            selection=selection
-
+            selection=selection,
         )
 
     def fit(self, X, y):
@@ -110,8 +109,7 @@ class ALasso(Lasso):
             X_w = X / weights
             super().fit(X_w, y)
             self.coef_ = self.coef_ / weights
-            weights = 1. / \
-                (2. * np.sqrt(np.abs(self.coef_)) + np.finfo(float).eps)
+            weights = 1.0 / (2.0 * np.sqrt(np.abs(self.coef_)) + np.finfo(float).eps)
         return self
 
 
@@ -285,7 +283,7 @@ class ALogitLasso(LogisticRegression):
             verbose=verbose,
             warm_start=warm_start,
             n_jobs=n_jobs,
-            l1_ratio=l1_ratio
+            l1_ratio=l1_ratio,
         )
 
     def fit(self, X, y):
@@ -309,7 +307,6 @@ class ALogitLasso(LogisticRegression):
             X_w = X / weights
             super().fit(X_w, y)
             self.coef_ = self.coef_ / weights
-            weights = 1. / \
-                (2. * np.sqrt(np.abs(self.coef_)) + np.finfo(float).eps)
+            weights = 1.0 / (2.0 * np.sqrt(np.abs(self.coef_)) + np.finfo(float).eps)
 
         return self

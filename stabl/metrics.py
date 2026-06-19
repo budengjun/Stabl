@@ -54,7 +54,8 @@ def jaccard_matrix(list_of_lists, remove_diag=True):
 
     if remove_diag:
         jaccard_mat = jaccard_mat[~np.eye(jaccard_mat.shape[0], dtype=bool)].reshape(
-            jaccard_mat.shape[0], -1)
+            jaccard_mat.shape[0], -1
+        )
 
     return jaccard_mat
 
@@ -88,7 +89,8 @@ def adjusted_similarity(list1, list2, nb_total_elements):
 
     if u > nb_total_elements:
         raise ValueError(
-            f"Union cardinal:{u} is greater than the total number of elements: {nb_total_elements}.")
+            f"Union cardinal:{u} is greater than the total number of elements: {nb_total_elements}."
+        )
 
     if k1 == nb_total_elements or k2 == nb_total_elements or k1 == 0 or k2 == 0:
         return 0
@@ -122,9 +124,9 @@ def adjusted_similarity_values(list_of_lists, nb_total_elements):
     adjusted_matrix = np.zeros((N, N))
     for i in range(N):
         for j in range(N):
-            adjusted_matrix[i, j] = adjusted_similarity(list_of_lists[i],
-                                                        list_of_lists[j],
-                                                        nb_total_elements)
+            adjusted_matrix[i, j] = adjusted_similarity(
+                list_of_lists[i], list_of_lists[j], nb_total_elements
+            )
 
     adjusted_matrix_upper = adjusted_matrix[np.triu_indices_from(adjusted_matrix, k=1)]
     return adjusted_matrix_upper
@@ -158,13 +160,16 @@ def adjusted_similarity_measure(list_of_lists, nb_total_elements, stat="median")
 
     if stat == "median":
         return np.median(adjusted_matrix_upper), list(
-            np.quantile(adjusted_matrix_upper, [.25, .75]))
+            np.quantile(adjusted_matrix_upper, [0.25, 0.75])
+        )
 
     elif stat == "mean":
         return np.mean(adjusted_matrix_upper), np.std(adjusted_matrix_upper)
 
     else:
-        raise ValueError(f"stat not recognized. Should either be 'median' or 'mean'. Got {stat}")
+        raise ValueError(
+            f"stat not recognized. Should either be 'median' or 'mean'. Got {stat}"
+        )
 
 
 def pearson_similarity(list_i, list_j, d):
@@ -229,9 +234,7 @@ def pearson_similarity_values(list_of_lists, d):
     for i in range(N):
         for j in range(N):
             person_matrix[i, j] = pearson_similarity(
-                list_of_lists[i],
-                list_of_lists[j],
-                d
+                list_of_lists[i], list_of_lists[j], d
             )
 
     person_matrix_upper = person_matrix[np.triu_indices_from(person_matrix, k=1)]
@@ -265,13 +268,17 @@ def pearson_similarity_measure(list_of_lists, d, stat="median"):
     pearson_matrix_upper = pearson_similarity_values(list_of_lists, d)
 
     if stat == "median":
-        return np.median(pearson_matrix_upper), list(np.quantile(pearson_matrix_upper, [.25, .75]))
+        return np.median(pearson_matrix_upper), list(
+            np.quantile(pearson_matrix_upper, [0.25, 0.75])
+        )
 
     elif stat == "mean":
         return np.mean(pearson_matrix_upper), np.std(pearson_matrix_upper)
 
     else:
-        raise ValueError(f"stat not recognized. Should either be 'median' or 'mean'. Got {stat}")
+        raise ValueError(
+            f"stat not recognized. Should either be 'median' or 'mean'. Got {stat}"
+        )
 
 
 def fdr_similarity(list1, list2):
@@ -293,8 +300,7 @@ def fdr_similarity(list1, list2):
 
     tp = len(set(list1).intersection(list2))
     fp = len(set(list1).difference(list2))
-    fn = len(set(list2).difference(list1))
-    if (fp + tp == 0):
+    if fp + tp == 0:
         return 0
 
     return fp / (tp + fp)
@@ -318,9 +324,8 @@ def tpr_similarity(list1, list2):
     """
 
     tp = len(set(list1).intersection(list2))
-    fp = len(set(list1).difference(list2))
     fn = len(set(list2).difference(list1))
-    if (fn + tp == 0):
+    if fn + tp == 0:
         return 0
 
     return tp / (tp + fn)
@@ -350,7 +355,7 @@ def fscore_similarity(list1, list2, beta=1):
     num = (1 + beta**2) * tp
     den = (1 + beta**2) * tp + beta**2 * fn + fp
 
-    if (den == 0):
+    if den == 0:
         return 0
 
     return num / den

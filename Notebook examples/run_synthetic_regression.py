@@ -1,21 +1,19 @@
 from julia.api import Julia
-jl = Julia(compiled_modules=False)
+
 import numpy as np
-import pandas as pd
-from stabl import data
 from stabl.synthetic import synthetic_benchmark_feature_selection
-from sklearn.model_selection import RepeatedStratifiedKFold, GroupShuffleSplit, GridSearchCV, KFold
-from sklearn.linear_model import LogisticRegression, Lasso, ElasticNet
+from sklearn.model_selection import GridSearchCV, KFold
+from sklearn.linear_model import Lasso, ElasticNet
 from stabl.stabl import Stabl
 from sklearn.base import clone
-from stabl.adaptive import ALogitLasso, ALasso
+from stabl.adaptive import ALasso
 
-from stabl.metrics import jaccard_matrix
-from stabl.stacked_generalization import stacked_multi_omic
 
-from stabl.pipelines_utils import save_plots, compute_scores_table, compute_pvalues_table, BenchmarkWrapper
 from tqdm.autonotebook import tqdm
 from synthetic_data import load_data
+
+jl = Julia(compiled_modules=False)
+
 
 chosen_inner_cv = KFold(n_splits=5, shuffle=True, random_state=42)
 
@@ -25,49 +23,60 @@ task_type = "linear"
 # Lasso
 lasso = Lasso(max_iter=int(1e6), random_state=42)
 lasso_cv = GridSearchCV(
-    lasso, scoring="r2", param_grid={"alpha": np.logspace(-2, 2, 30)}, cv=chosen_inner_cv, n_jobs=-1
+    lasso,
+    scoring="r2",
+    param_grid={"alpha": np.logspace(-2, 2, 30)},
+    cv=chosen_inner_cv,
+    n_jobs=-1,
 )
 
 # ElasticNet
 en = ElasticNet(max_iter=int(1e6), random_state=42)
-en_params = {"alpha": np.logspace(-2, 2, 10), "l1_ratio": [.5, .7, .9]}
-en_cv = GridSearchCV(en, param_grid=en_params, scoring="r2", cv=chosen_inner_cv, n_jobs=-1)
+en_params = {"alpha": np.logspace(-2, 2, 10), "l1_ratio": [0.5, 0.7, 0.9]}
+en_cv = GridSearchCV(
+    en, param_grid=en_params, scoring="r2", cv=chosen_inner_cv, n_jobs=-1
+)
 
 # ALasso
 alasso = ALasso(max_iter=int(1e6), random_state=42)
-alasso_cv = GridSearchCV(alasso, scoring="r2", param_grid={"alpha": np.logspace(-2, 2, 30)}, cv=chosen_inner_cv, n_jobs=-1)
+alasso_cv = GridSearchCV(
+    alasso,
+    scoring="r2",
+    param_grid={"alpha": np.logspace(-2, 2, 30)},
+    cv=chosen_inner_cv,
+    n_jobs=-1,
+)
 
 # Stabl
 stabl = Stabl(
     lasso,
     n_bootstraps=100,
     artificial_type=artificial_type,
-    artificial_proportion=1.,
+    artificial_proportion=1.0,
     replace=False,
     fdr_threshold_range=np.arange(0.1, 1, 0.01),
     sample_fraction=0.5,
     random_state=42,
     lambda_grid=None,
-    verbose=0
+    verbose=0,
 )
 
 stabl_rp = clone(stabl).set_params(artificial_type="random_permutation")
 
 stabl_alasso = clone(stabl).set_params(
-    base_estimator=alasso,
-    lambda_grid=None,
-    verbose=0
+    base_estimator=alasso, lambda_grid=None, verbose=0
 )
 stabl_alasso_rp = clone(stabl_alasso).set_params(artificial_type="random_permutation")
 
 stabl_en = clone(stabl).set_params(
     base_estimator=en,
     lambda_grid=[
-        {"alpha": np.logspace(-1, 2, 5), "l1_ratio": [.5]},
-        {"alpha": np.logspace(-1, 2, 5), "l1_ratio": [.7]},
-        {"alpha": np.logspace(-2, 2, 5), "l1_ratio": [.9]},
+        {"alpha": np.logspace(-1, 2, 5), "l1_ratio": [0.5]},
+        {"alpha": np.logspace(-1, 2, 5), "l1_ratio": [0.7]},
+        {"alpha": np.logspace(-2, 2, 5), "l1_ratio": [0.9]},
     ],
-    verbose=0)
+    verbose=0,
+)
 stabl_en_rp = clone(stabl_en).set_params(artificial_type="random_permutation")
 
 
@@ -97,10 +106,7 @@ for feat_type in ["normal", "NB", "ZINB"]:
 
             for i, j in estimators.items():
                 if isinstance(j, Stabl):
-                    j.set_params(**{
-                        "feat_type": feat_type,
-                        "corr": corr
-                    })
+                    j.set_params(**{"feat_type": feat_type, "corr": corr})
 
             synthetic_benchmark_feature_selection(
                 X=np.array(X),
@@ -115,5 +121,5 @@ for feat_type in ["normal", "NB", "ZINB"]:
                 input_type=feat_type,
                 snr=2,
                 scale_u=2,
-                base_estim=["alasso", "lasso", "en"]
+                base_estim=["alasso", "lasso", "en"],
             )

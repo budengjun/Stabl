@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 from pathlib import Path
 import os
@@ -12,7 +11,7 @@ def create_data(p, p_info, marg, corr, use_blocks=False):
         "Sample Data",
         "Synthetic",
         f"Norta data {p_info}{use_blocks_str}",
-        f"{p} feats {marg} {corr}.csv"
+        f"{p} feats {marg} {corr}.csv",
     )
     os.makedirs(path.parent, exist_ok=True)
     if not path.exists():
@@ -30,6 +29,6 @@ def load_data(p, p_info, marg, corr, use_blocks=False):
         "Sample Data",
         "Synthetic",
         f"Norta data {p_info}{use_blocks_str}",
-        f"{p} feats {marg} {corr}.csv"
+        f"{p} feats {marg} {corr}.csv",
     )
     return pd.read_csv(path)

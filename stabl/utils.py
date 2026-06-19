@@ -1,10 +1,21 @@
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
-from sklearn.metrics import roc_auc_score, r2_score, average_precision_score, \
-    mean_absolute_error, mean_squared_error, precision_recall_curve, auc
-from sklearn.model_selection import RepeatedKFold, cross_val_predict, \
-    ParameterGrid, LeaveOneOut
+from sklearn.metrics import (
+    roc_auc_score,
+    r2_score,
+    average_precision_score,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_recall_curve,
+    auc,
+)
+from sklearn.model_selection import (
+    RepeatedKFold,
+    cross_val_predict,
+    ParameterGrid,
+    LeaveOneOut,
+)
 from sklearn.base import clone
 
 
@@ -51,26 +62,21 @@ def fit_predict(estimator, X, y, train, test, task_type):
         results = np.empty((n_samples, n_classes))
 
     results[:] = np.nan
-    if task_type == 'binary':
+    if task_type == "binary":
         results[test] = estimator.fit(X[train], y[train]).predict_proba(X[test])[:, 1]
     elif task_type == "multiclass":
         results[test] = estimator.fit(X[train], y[train]).predict_proba(X[test])
     elif task_type == "regression":
         results[test] = estimator.fit(X[train], y[train]).predict(X[test])
     else:
-        raise ValueError(f"Task type should be in ['binary' ,'multiclass', 'regression']. Got {task_type}")
+        raise ValueError(
+            f"Task type should be in ['binary' ,'multiclass', 'regression']. Got {task_type}"
+        )
 
     return results
 
 
-def nonpartition_cross_val_predict(
-        estimator,
-        X,
-        y,
-        task_type,
-        splitter,
-        groups=None
-):
+def nonpartition_cross_val_predict(estimator, X, y, task_type, splitter, groups=None):
     """
     This function is a variation of the cross_val_predict function of scikit-learn
     The idea is that we can pass a non partition splitter (i.e. some samples can be found in several
@@ -82,10 +88,10 @@ def nonpartition_cross_val_predict(
     estimator: Classifier
         Classifier to be evaluated.
 
-    X: array-like 
+    X: array-like
         Input data.
 
-    y: array-like 
+    y: array-like
         Outcome.
 
     splitter: non-partition splitter.
@@ -111,21 +117,19 @@ def nonpartition_cross_val_predict(
     # properly cleaned up even if the main process crashes or
     # is interrupted (e.g. Ctrl+C in Jupyter).
     try:
-        with Parallel(n_jobs=-1, prefer='processes') as parallel:
+        with Parallel(n_jobs=-1, prefer="processes") as parallel:
             predictions = np.array(
-                parallel(delayed(fit_predict)(
-                    estimator,
-                    X,
-                    y,
-                    train,
-                    test,
-                    task_type
-                ) for train, test in splitter.split(X, y, groups=groups)))
+                parallel(
+                    delayed(fit_predict)(estimator, X, y, train, test, task_type)
+                    for train, test in splitter.split(X, y, groups=groups)
+                )
+            )
     finally:
         # Explicitly shut down loky's reusable worker pool to release
         # all child processes and reclaim memory.
         try:
             from joblib.externals.loky import get_reusable_executor
+
             get_reusable_executor().shutdown(wait=True)
         except Exception:
             pass
@@ -133,19 +137,21 @@ def nonpartition_cross_val_predict(
     median_prediction = np.nanmedian(predictions, axis=0)
 
     if task_type == "multiclass":
-        median_prediction = median_prediction / np.sum(median_prediction, axis=1, keepdims=True)
+        median_prediction = median_prediction / np.sum(
+            median_prediction, axis=1, keepdims=True
+        )
 
     return predictions, median_prediction
 
 
 def nonpartition_gridsearch(
-        estimator,
-        param_grid,
-        X,
-        y,
-        task_type,
-        splitter=RepeatedKFold(n_splits=5, n_repeats=10),
-        groups=None
+    estimator,
+    param_grid,
+    X,
+    y,
+    task_type,
+    splitter=RepeatedKFold(n_splits=5, n_repeats=10),
+    groups=None,
 ):
     """
     GridSearch technique using non partition cross validation scheme.
@@ -173,7 +179,7 @@ def nonpartition_gridsearch(
     task_type: str, default='predict_proba'
         What type of prediction we make:
         - 'predict_proba': we predict probabilities for each sample
-        - 'predict': we predict the class for classification and the value 
+        - 'predict': we predict the class for classification and the value
         for regression task
 
     Returns
@@ -195,7 +201,7 @@ def nonpartition_gridsearch(
             y=y,
             splitter=splitter,
             task_type=task_type,
-            groups=groups
+            groups=groups,
         )[1]
 
         if task_type == "binary":
@@ -205,38 +211,34 @@ def nonpartition_gridsearch(
         elif task_type == "regression":
             score = r2_score(y, y_preds)
         else:
-            raise ValueError(f"`task_type` should be in ['binary', 'multiclass', 'regression']. Got {task_type}")
+            raise ValueError(
+                f"`task_type` should be in ['binary', 'multiclass', 'regression']. Got {task_type}"
+            )
 
         if score > best_score:
             best_score = score
             best_preds = y_preds
             best_params = p
 
-    return clone(estimator).set_params(**best_params).fit(X,y), best_params, best_preds
+    return clone(estimator).set_params(**best_params).fit(X, y), best_params, best_preds
 
 
 def loo_gridsearch(
-        estimator,
-        param_grid,
-        X,
-        y,
-        task_type,
-        cv=LeaveOneOut(),
-        groups=None
+    estimator, param_grid, X, y, task_type, cv=LeaveOneOut(), groups=None
 ):
     """
     GridSearch technique using Leave-one-out cross validation scheme.
     Can also be used for leave-one-group-out.
 
     This function differs from the scikit-learn by the evaluation technique.
-    Rather than evaluating the metric at each fold, the metric is evaluated 
+    Rather than evaluating the metric at each fold, the metric is evaluated
     after having computed the probabilities (or outcomes) for all samples.
 
     The best parameters are chosen this way.
 
     Parameters:
     -----------
-    estimator: 
+    estimator:
         Estimator to be evaluated.
 
     param_grid: dict
@@ -260,42 +262,27 @@ def loo_gridsearch(
         estimator.set_params(**p)
         if task_type == "binary":
             y_preds = cross_val_predict(
-                estimator,
-                X,
-                y,
-                cv=cv,
-                n_jobs=-1,
-                method='predict_proba',
-                groups=groups
+                estimator, X, y, cv=cv, n_jobs=-1, method="predict_proba", groups=groups
             )[:, 1]
             score = roc_auc_score(y, y_preds)
 
-        elif task_type == 'regression':
+        elif task_type == "regression":
             y_preds = cross_val_predict(
-                estimator,
-                X,
-                y,
-                cv=cv,
-                n_jobs=-1,
-                groups=groups
+                estimator, X, y, cv=cv, n_jobs=-1, groups=groups
             )
             score = r2_score(y, y_preds)
 
         elif task_type == "multiclass":
             y_preds = cross_val_predict(
-                estimator,
-                X,
-                y,
-                cv=cv,
-                n_jobs=-1,
-                groups=groups,
-                method="predict_proba"
+                estimator, X, y, cv=cv, n_jobs=-1, groups=groups, method="predict_proba"
             )
             score = roc_auc_score(y, y_preds, multi_class="ovr")
 
         else:
-            raise ValueError(f"Task type is invalid, it should be in ['binary', 'multiclass', 'regression']. "
-                             f"Got {task_type}")
+            raise ValueError(
+                f"Task type is invalid, it should be in ['binary', 'multiclass', 'regression']. "
+                f"Got {task_type}"
+            )
 
         scores.append(score)
 
@@ -303,34 +290,34 @@ def loo_gridsearch(
 
 
 def compute_CI(
-        y_true,
-        y_preds,
-        confidence_level=0.95,
-        scoring="roc_auc",
-        return_CI_predictions=False
+    y_true,
+    y_preds,
+    confidence_level=0.95,
+    scoring="roc_auc",
+    return_CI_predictions=False,
 ):
     """
     Function to predict the confidence interval a level 1-alpha
     for a given set of target and predicted probabilities.
-    
+
     Parameters
     ----------
     return_CI_predictions
     y_true: array-like, size=(n_repeats,)
         Array of binary outcomes
-        
+
     y_preds: array-like, size=(n_repeats,)
         Array of predicted probabilities.
-        
+
     confidence_level: float, 0<alpha<1, default=0.95
         confidence level
-    
+
     scoring: str, default="auc"
         String to indicate what type of curve the CI is computed for.
         - "roc_auc": Area under the Receiver Operating Curve
         - "average_precision": Average Precision
         - "r2": R2-score
-        
+
     Returns
     -------
     """
@@ -343,47 +330,67 @@ def compute_CI(
     y_true, y_preds = np.array(y_true), np.array(y_preds)
 
     for iteration in range(1000):
-        samples = np.random.choice(a=y_true.shape[0], size=y_true.shape[0], replace=True)
+        samples = np.random.choice(
+            a=y_true.shape[0], size=y_true.shape[0], replace=True
+        )
         if scoring == "roc_auc":
             while len(np.unique(y_true[samples])) != 2:
-                samples = np.random.choice(a=y_true.shape[0], size=y_true.shape[0], replace=True)
+                samples = np.random.choice(
+                    a=y_true.shape[0], size=y_true.shape[0], replace=True
+                )
 
             scores.append(roc_auc_score(y_true[samples], y_preds[samples]))
         if scoring == "average_precision":
             while len(np.unique(y_true[samples])) != 2:
-                samples = np.random.choice(a=y_true.shape[0], size=y_true.shape[0], replace=True)
+                samples = np.random.choice(
+                    a=y_true.shape[0], size=y_true.shape[0], replace=True
+                )
 
             scores.append(average_precision_score(y_true[samples], y_preds[samples]))
         if scoring == "prc_auc":
             while len(np.unique(y_true[samples])) != 2:
-                samples = np.random.choice(a=y_true.shape[0], size=y_true.shape[0], replace=True)
+                samples = np.random.choice(
+                    a=y_true.shape[0], size=y_true.shape[0], replace=True
+                )
 
-            precision, recall, _ = precision_recall_curve(y_true[samples], y_preds[samples])
+            precision, recall, _ = precision_recall_curve(
+                y_true[samples], y_preds[samples]
+            )
             prc_auc = auc(recall, precision)
             scores.append(prc_auc)
         if scoring == "roc_auc_ovr":
             while len(np.unique(y_true[samples])) < 2:
-                samples = np.random.choice(a=y_true.shape[0], size=y_true.shape[0], replace=True)
-            scores.append(roc_auc_score(y_true[samples], y_preds[samples], multi_class="ovr"))
+                samples = np.random.choice(
+                    a=y_true.shape[0], size=y_true.shape[0], replace=True
+                )
+            scores.append(
+                roc_auc_score(y_true[samples], y_preds[samples], multi_class="ovr")
+            )
         if scoring == "r2":
             scores.append(r2_score(y_true[samples], y_preds[samples]))
         if scoring == "rmse":
-            scores.append(np.sqrt(mean_squared_error(y_true[samples], y_preds[samples])))
+            scores.append(
+                np.sqrt(mean_squared_error(y_true[samples], y_preds[samples]))
+            )
         if scoring == "mae":
             scores.append(mean_absolute_error(y_true[samples], y_preds[samples]))
 
         sampled_indices[iteration] = samples
 
-    if scoring in ["roc_auc", "prc_auc", "average_precision", "roc_auc_ovr"] and return_CI_predictions:
+    if (
+        scoring in ["roc_auc", "prc_auc", "average_precision", "roc_auc_ovr"]
+        and return_CI_predictions
+    ):
         score_sorted = np.argsort(scores)
         indices_up = sampled_indices[score_sorted[int(percentiles[1] * 10) - 1]]
         indices_low = sampled_indices[score_sorted[int(percentiles[0] * 10) - 1]]
         df_bound = pd.DataFrame(
-            {"target_low": np.array(y_true[indices_low]),
-             "preds_low": np.array(y_preds[indices_low]),
-             "target_up": np.array(y_true[indices_up]),
-             "preds_up": np.array(y_preds[indices_up])
-             }
+            {
+                "target_low": np.array(y_true[indices_low]),
+                "preds_low": np.array(y_preds[indices_low]),
+                "target_up": np.array(y_true[indices_up]),
+                "preds_up": np.array(y_preds[indices_up]),
+            }
         )
         return df_bound, np.percentile(scores, percentiles)
 
@@ -391,7 +398,9 @@ def compute_CI(
         return np.percentile(scores, percentiles)
 
 
-def permutation_test_between_clfs(y_true, pred_probas_1, pred_probas_2, scoring="roc_auc", n_repeats=1000):
+def permutation_test_between_clfs(
+    y_true, pred_probas_1, pred_probas_2, scoring="roc_auc", n_repeats=1000
+):
     """
     Function to perform a permutation test between two classifiers predictions.
 
@@ -432,7 +441,7 @@ def permutation_test_between_clfs(y_true, pred_probas_1, pred_probas_2, scoring=
         score2 = average_precision_score(y_true.ravel(), pred_probas_2.ravel())
 
     else:
-        raise ValueError(f"")
+        raise ValueError("")
 
     observed_difference = score1 - score2
 

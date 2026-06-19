@@ -1,42 +1,47 @@
-import warnings
-import scipy as sp
-import os
-from copy import copy
-from itertools import cycle
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
-from matplotlib.legend_handler import HandlerTuple
-from scipy.stats import mannwhitneyu, pearsonr
-from sklearn import metrics
-from sklearn.metrics import roc_curve, r2_score, mean_squared_error, roc_auc_score, auc, \
-    precision_recall_curve, mean_absolute_error
-from sklearn.model_selection import cross_val_predict, LeaveOneOut, StratifiedKFold
-from sklearn.preprocessing import LabelBinarizer
+from scipy.stats import pearsonr
+from sklearn.metrics import (
+    roc_curve,
+    r2_score,
+    mean_squared_error,
+    roc_auc_score,
+    auc,
+    precision_recall_curve,
+    mean_absolute_error,
+)
 from sklearn.linear_model import LinearRegression
 
 from .utils import compute_CI
 
-colors = ['#a8e6ce', '#dcedc2', '#ffd3b5', '#ffaaa6',
-          '#ff8c94', '#e3819d', '#a188b7', '#487fad']
+colors = [
+    "#a8e6ce",
+    "#dcedc2",
+    "#ffd3b5",
+    "#ffaaa6",
+    "#ff8c94",
+    "#e3819d",
+    "#a188b7",
+    "#487fad",
+]
 surge_palette = sns.color_palette(colors)
 
 
 def plot_roc(
-        y_true,
-        y_preds,
-        show_fig=True,
-        show_CI=True,
-        CI_level=0.95,
-        export_file=False,
-        paths='./ROC Curve.pdf',
-        **kwargs
+    y_true,
+    y_preds,
+    show_fig=True,
+    show_CI=True,
+    CI_level=0.95,
+    export_file=False,
+    paths="./ROC Curve.pdf",
+    **kwargs,
 ):
     """
     Function to draw the ROC curve from predicted probabilities.
@@ -63,7 +68,7 @@ def plot_roc(
         by the user.
 
     paths: str or Path or list of Path, default='./ROC curve.pdf'
-        The path indicating were we want to save the figure. 
+        The path indicating were we want to save the figure.
         Should also include the name of the file and the extension.
 
     **kwargs: additional parameters for the plot function
@@ -82,35 +87,40 @@ def plot_roc(
         y_preds=y_preds,
         scoring="roc_auc",
         confidence_level=CI_level,
-        return_CI_predictions=True
+        return_CI_predictions=True,
     )
 
     if show_CI:
         fpr_low, tpr_low, _ = roc_curve(df_CI.target_low, df_CI.preds_low)
-        ax.plot(fpr_low, tpr_low, lw=2, ls=":", alpha=.5, color='#e3819d')
+        ax.plot(fpr_low, tpr_low, lw=2, ls=":", alpha=0.5, color="#e3819d")
 
         fpr_up, tpr_up, _ = roc_curve(df_CI.target_up, df_CI.preds_up)
-        ax.plot(fpr_up, tpr_up, lw=2, ls=":", alpha=.5, color='#e3819d')
+        ax.plot(fpr_up, tpr_up, lw=2, ls=":", alpha=0.5, color="#e3819d")
 
     ax.plot(
         fpr,
         tpr,
         lw=2,
         alpha=1,
-        color='#C41E3A',
-        label=f"ROC (AUC = {roc_auc:.3f} [{CI[0]:.3f}, {CI[1]:.3f}])"
+        color="#C41E3A",
+        label=f"ROC (AUC = {roc_auc:.3f} [{CI[0]:.3f}, {CI[1]:.3f}])",
     )
-    ax.plot([0, 1], [0, 1], linestyle='--', lw=1.5,
-            color='#4D4F53', alpha=.8, label="Chance")
+    ax.plot(
+        [0, 1],
+        [0, 1],
+        linestyle="--",
+        lw=1.5,
+        color="#4D4F53",
+        alpha=0.8,
+        label="Chance",
+    )
 
     make_beautiful_axis(ax)
-    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2),
-                     loc="lower center", fontsize=8)
+    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower center", fontsize=8)
 
     if export_file:
         for path in paths:
-            fig.savefig(path, dpi=95, bbox_extra_artists=(
-                lgd,), bbox_inches='tight')
+            fig.savefig(path, dpi=95, bbox_extra_artists=(lgd,), bbox_inches="tight")
 
     if not show_fig:
         plt.close()
@@ -119,15 +129,15 @@ def plot_roc(
 
 
 def plot_prc(
-        y_true,
-        y_preds,
-        show_fig=True,
-        show_CI=True,
-        show_iso=True,
-        CI_level=0.95,
-        export_file=False,
-        path='./PR Curve.pdf',
-        **kwargs
+    y_true,
+    y_preds,
+    show_fig=True,
+    show_CI=True,
+    show_iso=True,
+    CI_level=0.95,
+    export_file=False,
+    path="./PR Curve.pdf",
+    **kwargs,
 ):
     """
     Function to draw the PR curve from probabilities.
@@ -157,7 +167,7 @@ def plot_prc(
         by the user.
 
     path: str, default='./PR curve.pdf'
-        The path indicating were we want to save the figure. 
+        The path indicating were we want to save the figure.
         Should also include the name of the file and the extension.
 
     **kwargs: additional parameters for the plot function
@@ -172,7 +182,7 @@ def plot_prc(
         y_preds=y_preds,
         scoring="prc_auc",
         confidence_level=CI_level,
-        return_CI_predictions=True
+        return_CI_predictions=True,
     )
 
     if show_iso:
@@ -180,35 +190,29 @@ def plot_prc(
 
     if show_CI:
         precision_low, recall_low, _ = precision_recall_curve(
-            df_CI.target_low,
-            df_CI.preds_low
+            df_CI.target_low, df_CI.preds_low
         )
-        ax.plot(recall_low, precision_low, lw=2,
-                ls=":", alpha=.8, color='#e3819d')
+        ax.plot(recall_low, precision_low, lw=2, ls=":", alpha=0.8, color="#e3819d")
 
         precision_up, recall_up, _ = precision_recall_curve(
-            df_CI.target_up,
-            df_CI.preds_up
+            df_CI.target_up, df_CI.preds_up
         )
-        ax.plot(recall_up, precision_up, lw=2,
-                ls=":", alpha=.8, color='#e3819d')
+        ax.plot(recall_up, precision_up, lw=2, ls=":", alpha=0.8, color="#e3819d")
 
     ax.plot(
         recall,
         precision,
         lw=2,
         alpha=1,
-        color='#C41E3A',
-        label=f"PR (AUC = {prc_auc:.3f} [{CI[0]:.3f}, {CI[1]:.3f}])"
+        color="#C41E3A",
+        label=f"PR (AUC = {prc_auc:.3f} [{CI[0]:.3f}, {CI[1]:.3f}])",
     )
 
     ax = make_beautiful_axis(ax, plot_type="prc")
-    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2),
-                     loc="lower center", fontsize=8)
+    lgd = plt.legend(bbox_to_anchor=(0, 1.02, 1, 0.2), loc="lower center", fontsize=8)
 
     if export_file:
-        fig.savefig(path, dpi=95, bbox_extra_artists=(
-            lgd,), bbox_inches='tight')
+        fig.savefig(path, dpi=95, bbox_extra_artists=(lgd,), bbox_inches="tight")
 
     if not show_fig:
         plt.close()
@@ -235,22 +239,25 @@ def _is_categorical(df, feature, categorical_features):
     """
     if isinstance(categorical_features, list) and feature in categorical_features:
         return True
-    if isinstance(categorical_features, int) and df[feature].nunique() <= categorical_features:
+    if (
+        isinstance(categorical_features, int)
+        and df[feature].nunique() <= categorical_features
+    ):
         return True
     return False
 
 
 def boxplot_features(
-        list_of_features,
-        df_X,
-        y,
-        categorical_features=10,
-        cmap='viridis',
-        show_zero=True,
-        show_fig=True,
-        export_file=False,
-        path='./',
-        fmt='pdf'
+    list_of_features,
+    df_X,
+    y,
+    categorical_features=10,
+    cmap="viridis",
+    show_zero=True,
+    show_fig=True,
+    export_file=False,
+    path="./",
+    fmt="pdf",
 ):
     """Function to boxplot of the features indicated in a list
     given by the user.
@@ -295,18 +302,22 @@ def boxplot_features(
     palette = ["#4D4F53", "#C41E3A"]
 
     for feature in list_of_features:
-
         if _is_categorical(df_X, feature, categorical_features):
             fig, ax = plt.subplots(1, 1, figsize=(10, 5))
             feat = df_X[feature]
             df_plot = pd.DataFrame(columns=np.unique(np.sort(feat.unique())))
             for v in np.unique(y):
                 df_plot.loc[v] = feat[y == v].value_counts()
-            df_plot.plot.bar(ax=ax, colormap=cmap, alpha=.5, ylabel="Count", rot=45)
+            df_plot.plot.bar(ax=ax, colormap=cmap, alpha=0.5, ylabel="Count", rot=45)
 
-            ax.legend(bbox_to_anchor=(1, 0.5), loc='center left',
-                      borderaxespad=1, title=f"{feature} values",
-                      title_fontsize="small", alignment="left")
+            ax.legend(
+                bbox_to_anchor=(1, 0.5),
+                loc="center left",
+                borderaxespad=1,
+                title=f"{feature} values",
+                title_fontsize="small",
+                alignment="left",
+            )
 
             _adjust_box_widths(fig, 0.8, True)
             # make_beautiful_axis(ax, plot_type="barplot")
@@ -323,9 +334,9 @@ def boxplot_features(
                 x=y,
                 showfliers=False,
                 palette=cmap_palette,
-                boxprops=dict(alpha=.2),
-                whiskerprops=dict(alpha=.2),
-                width=.4
+                boxprops=dict(alpha=0.2),
+                whiskerprops=dict(alpha=0.2),
+                width=0.4,
             )
 
             sns.stripplot(
@@ -334,7 +345,7 @@ def boxplot_features(
                 x=y,
                 palette=cmap_palette,
                 hue=y,
-                alpha=.5,
+                alpha=0.5,
                 size=4,
                 marker="D",
                 legend=False,
@@ -349,7 +360,7 @@ def boxplot_features(
                 if ax.get_ylim()[1] < 0:
                     ax.set_ylim(top=0)
 
-            ax.set_ylabel('')
+            ax.set_ylabel("")
 
         fig.tight_layout()
         fig.subplots_adjust(top=0.9)
@@ -363,16 +374,16 @@ def boxplot_features(
 
 
 def scatterplot_features(
-        list_of_features,
-        df_X,
-        y,
-        categorical_features=10,
-        cmap='viridis',
-        show_fig=True,
-        export_file=False,
-        path='./',
-        fmt='pdf',
-        **kwargs
+    list_of_features,
+    df_X,
+    y,
+    categorical_features=10,
+    cmap="viridis",
+    show_fig=True,
+    export_file=False,
+    path="./",
+    fmt="pdf",
+    **kwargs,
 ):
     """Plot the scatter plot of the most stable features given a threshold
     We can also export them to pdf
@@ -414,7 +425,6 @@ def scatterplot_features(
         fig, ax = plt.subplots(1, 1, figsize=(5.5, 3.5))
 
         if _is_categorical(df_X, col, categorical_features):
-
             cmap_palette = sns.color_palette(cmap, df_X[col].nunique())
 
             values = df_X[col]
@@ -427,9 +437,9 @@ def scatterplot_features(
                 order=order,
                 showfliers=False,
                 palette=cmap_palette,
-                boxprops=dict(alpha=.2),
-                whiskerprops=dict(alpha=.2),
-                width=.4
+                boxprops=dict(alpha=0.2),
+                whiskerprops=dict(alpha=0.2),
+                width=0.4,
             )
 
             sns.stripplot(
@@ -441,10 +451,10 @@ def scatterplot_features(
                 order=order,
                 hue_order=order,
                 palette=cmap_palette,
-                alpha=.5,
+                alpha=0.5,
                 size=4,
                 legend=False,
-                marker="D"
+                marker="D",
             )
             make_beautiful_axis(ax, plot_type="boxplot", gridline_axis="x")
 
@@ -452,7 +462,7 @@ def scatterplot_features(
             sns.scatterplot(ax=ax, y=df_X[col], color="#C41E3A", x=y, s=10, **kwargs)
             make_beautiful_axis(ax, plot_type="scatterplot")
         # fig.subplots_adjust(top=0.9)
-        ax.set_ylabel('')
+        ax.set_ylabel("")
         ax.set_title(col, fontsize=5)
 
         fig.tight_layout()
@@ -465,14 +475,14 @@ def scatterplot_features(
 
 
 def boxplot_binary_predictions(
-        y_true,
-        y_preds,
-        show_fig=True,
-        export_file=False,
-        paths='./Boxplot of predictions.pdf',
-        figsize=(5.5, 3.5),
-        classes=None,
-        **kwargs
+    y_true,
+    y_preds,
+    show_fig=True,
+    export_file=False,
+    paths="./Boxplot of predictions.pdf",
+    figsize=(5.5, 3.5),
+    classes=None,
+    **kwargs,
 ):
     """Function to plot the boxplot of the binary predictions.
     Also displays the mannwhitney u-test as the statistical test to test
@@ -494,7 +504,7 @@ def boxplot_binary_predictions(
     export_file: bool, default=False
         If set to True, it will export the plot using the path and the format.
         The names of the different file are generated automatically with the name
-        of the features. 
+        of the features.
 
     paths: str or Path or list of Path, default='./Boxplot of predictions.pdf'
         Path to the directory. Should also contain the name of the file and the
@@ -513,15 +523,24 @@ def boxplot_binary_predictions(
         ax=ax,
         y=y_true,
         x=y_preds,
-        orient='h',
-        color='.9',
+        orient="h",
+        color=".9",
         showfliers=False,
         palette=palette,
-        boxprops=dict(alpha=.25),
-        width=.5
+        boxprops=dict(alpha=0.25),
+        width=0.5,
     )
 
-    sns.stripplot(ax=ax, y=y_true, x=y_preds, hue=y_true, orient='h', palette=palette, legend=False, **kwargs)
+    sns.stripplot(
+        ax=ax,
+        y=y_true,
+        x=y_preds,
+        hue=y_true,
+        orient="h",
+        palette=palette,
+        legend=False,
+        **kwargs,
+    )
     if classes is not None:
         ax.set_yticklabels(labels=classes)
 
@@ -534,9 +553,9 @@ def boxplot_binary_predictions(
 
     plt.title(
         # fr"$\bf{{Mannwhitney}}$ pvalue={utest.pvalue:.2e}" + '\n'
-        fr"$\bf{{ROC}}$={roc_auc:.2f} [{auc_ci_lo:.2f}, {auc_ci_up:.2f}]" + '\n'
-        fr"$\bf{{Prec.Recall}}$={pr_auc:.2f} [{pr_ci_lo:.2f}, {pr_ci_up:.2f}]",
-        fontsize=10
+        rf"$\bf{{ROC}}$={roc_auc:.2f} [{auc_ci_lo:.2f}, {auc_ci_up:.2f}]" + "\n"
+        rf"$\bf{{Prec.Recall}}$={pr_auc:.2f} [{pr_ci_lo:.2f}, {pr_ci_up:.2f}]",
+        fontsize=10,
     )
 
     make_beautiful_axis(ax, plot_type="boxplot", gridline_axis="x")
@@ -594,20 +613,20 @@ def _adjust_box_widths(fig, fac, barplot=False):
 
 
 def scatterplot_regression_predictions(
-        y_true,
-        y_preds,
-        show_fig=True,
-        export_file=False,
-        paths='./Scatterplot of predictions',
-        linear_estimation=True,
-        **kwargs
+    y_true,
+    y_preds,
+    show_fig=True,
+    export_file=False,
+    paths="./Scatterplot of predictions",
+    linear_estimation=True,
+    **kwargs,
 ):
     """Function to plot the scatterplot of the regression predictions.
 
     Parameters
     ----------
     y_true: array-like, size=[n_repeats]
-        List of outcomes for each sample 
+        List of outcomes for each sample
 
     y_preds : array-like, size=[n_repeats]
         List of prediction for each sample
@@ -618,7 +637,7 @@ def scatterplot_regression_predictions(
     export_file: bool, default=False
         If set to True, it will export the plot using the path and the format.
         The names of the different file are generated automatically with the name
-        of the features. 
+        of the features.
 
     paths: str or Path or list of Path, default='./'
         Path to the directory. Should also contain the name of the file and the
@@ -633,10 +652,18 @@ def scatterplot_regression_predictions(
         paths = [paths]
 
     fig, ax = plt.subplots(1, 1, **kwargs)
-    sns.scatterplot(ax=ax, x=y_true, y=y_preds, color="#d4e0f6", alpha=.9, edgecolor="#ACB4CD", s=50)
+    sns.scatterplot(
+        ax=ax,
+        x=y_true,
+        y=y_preds,
+        color="#d4e0f6",
+        alpha=0.9,
+        edgecolor="#ACB4CD",
+        s=50,
+    )
     p1 = max(max(y_preds), max(y_true))
     p2 = min(min(y_preds), min(y_true))
-    ax.plot([p1, p2], [p1, p2], c='#f23a49', alpha=.7, ls="--")
+    ax.plot([p1, p2], [p1, p2], c="#f23a49", alpha=0.7, ls="--")
 
     r2 = r2_score(y_true=y_true, y_pred=y_preds)
     r2_ci_lo, r2_ci_up = compute_CI(y_true=y_true, y_preds=y_preds, scoring="r2")
@@ -647,14 +674,15 @@ def scatterplot_regression_predictions(
     pearson_stats, pearson_pvalue = pearsonr(y_true, y_preds)
 
     title = (
-        fr"$\bf{{Pearson r}}$: score = {pearson_stats:.2f}, pvalue= {pearson_pvalue:.2e}" + "\n"
-        fr"$\bf{{R2-score}}$ = {r2:.2f} [{r2_ci_lo:.2f}, {r2_ci_up:.2f}]" + "\n"
-        fr"$\bf{{RMSE}}$ = {rmse:.2f} [{rmse_ci_lo:.2f}, {rmse_ci_up:.2f}]" + "\n"
-        fr"$\bf{{MAE}}$ = {mae:.2f} [{mae_ci_lo:.2f}, {mae_ci_up:.2f}]"
+        rf"$\bf{{Pearson r}}$: score = {pearson_stats:.2f}, pvalue= {pearson_pvalue:.2e}"
+        + "\n"
+        rf"$\bf{{R2-score}}$ = {r2:.2f} [{r2_ci_lo:.2f}, {r2_ci_up:.2f}]" + "\n"
+        rf"$\bf{{RMSE}}$ = {rmse:.2f} [{rmse_ci_lo:.2f}, {rmse_ci_up:.2f}]" + "\n"
+        rf"$\bf{{MAE}}$ = {mae:.2f} [{mae_ci_lo:.2f}, {mae_ci_up:.2f}]"
     )
     if linear_estimation:
         lin = LinearRegression().fit(X=np.reshape(y_true, (-1, 1)), y=y_preds)
-        ax.plot([p1, p2], lin.predict([[p1], [p2]]), c='#1d00c2', alpha=.7)
+        ax.plot([p1, p2], lin.predict([[p1], [p2]]), c="#1d00c2", alpha=0.7)
         title += f"\nLinear regression: slope = {lin.coef_[0]:.2f}, intercept = {lin.intercept_:.2f}"
 
     ax.set_title(title, fontsize=10)
@@ -697,7 +725,9 @@ def make_beautiful_axis(ax, plot_type="roc", gridline_axis="y"):
     ax.set_axisbelow(True)
 
     if plot_type == "boxplot":
-        box_patches = [patch for patch in ax.patches if type(patch) == mpatches.PathPatch]
+        box_patches = [
+            patch for patch in ax.patches if isinstance(patch, mpatches.PathPatch)
+        ]
         num_patches = len(box_patches)
         lines_per_boxplot = len(ax.lines) // num_patches
 
@@ -706,21 +736,23 @@ def make_beautiful_axis(ax, plot_type="roc", gridline_axis="y"):
             patch.set_edgecolor(col)
             patch.set_facecolor(col)
 
-            for line in ax.lines[i * lines_per_boxplot: (i + 1) * lines_per_boxplot]:
+            for line in ax.lines[i * lines_per_boxplot : (i + 1) * lines_per_boxplot]:
                 line.set_color(col)
                 line.set_mfc(col)
                 line.set_mec(col)
 
     if plot_type in ["barplot", "boxplot"]:
-        ax.grid(which='major', color='#DDDDDD', linewidth=0.8, axis=gridline_axis)
+        ax.grid(which="major", color="#DDDDDD", linewidth=0.8, axis=gridline_axis)
 
     if plot_type in ["roc", "prc"]:
-        ax.grid(which='major', color='#DDDDDD', linewidth=0.8)
-        ax.grid(which='minor', color='#EEEEEE', linestyle=':', linewidth=0.7, zorder=-10)
+        ax.grid(which="major", color="#DDDDDD", linewidth=0.8)
+        ax.grid(
+            which="minor", color="#EEEEEE", linestyle=":", linewidth=0.7, zorder=-10
+        )
         ax.xaxis.set_minor_locator(matplotlib.ticker.AutoMinorLocator(2))
         ax.yaxis.set_minor_locator(matplotlib.ticker.AutoMinorLocator(2))
-        ax.set_xticks(ticks=[0, .25, .5, .75, 1.], labels=[0, .25, .5, .75, 1])
-        ax.set_yticks(ticks=[0, .25, .5, .75, 1.], labels=[0, .25, .5, .75, 1])
+        ax.set_xticks(ticks=[0, 0.25, 0.5, 0.75, 1.0], labels=[0, 0.25, 0.5, 0.75, 1])
+        ax.set_yticks(ticks=[0, 0.25, 0.5, 0.75, 1.0], labels=[0, 0.25, 0.5, 0.75, 1])
         ax.set_xlim(-0.05, 1.05)
         ax.set_ylim(-0.05, 1.05)
 
@@ -757,7 +789,5 @@ def add_iso_lines(ax, iso_number=4):
     for f_score in f_scores:
         x = np.linspace(0.01, 1)
         y = f_score * x / (2 * x - f_score)
-        ax.plot(x[y >= 0], y[y >= 0], color="#487fad",
-                alpha=0.2, lw=1, zorder=0)
-        ax.annotate("f1={0:0.1f}".format(f_score),
-                    xy=(y[45] + 0.02, 1.02), fontsize=7)
+        ax.plot(x[y >= 0], y[y >= 0], color="#487fad", alpha=0.2, lw=1, zorder=0)
+        ax.annotate("f1={0:0.1f}".format(f_score), xy=(y[45] + 0.02, 1.02), fontsize=7)
