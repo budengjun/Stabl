@@ -14,9 +14,9 @@ from sklearn.model_selection import (
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.linear_model import BayesianRidge, LogisticRegression, LinearRegression
 from sklearn.experimental import enable_iterative_imputer  # noqa: F401
-from sklearn.impute import IterativeImputer, SimpleImputer
+from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
 from sklearn import clone
 from pathlib import Path
 import os
@@ -44,20 +44,31 @@ logit = LogisticRegression(
 linreg = LinearRegression()
 
 
-def _make_imputer(imputation_strategy="simple", random_state=None):
-    if imputation_strategy == "simple":
+def make_imputer(imputation_strategy="median", random_state=42):
+    if imputation_strategy in ["median", "simple"]:
         return SimpleImputer(strategy="median")
+    if imputation_strategy == "knn":
+        return KNNImputer(n_neighbors=5)
     if imputation_strategy == "iterative":
-        return IterativeImputer(random_state=random_state, initial_strategy="median")
-    raise ValueError("imputation_strategy must be 'simple' or 'iterative'.")
+        return IterativeImputer(
+            estimator=BayesianRidge(),
+            max_iter=5,
+            n_nearest_features=50,
+            initial_strategy="median",
+            skip_complete=True,
+            imputation_order="ascending",
+            sample_posterior=False,
+            random_state=random_state,
+        )
+    raise ValueError(f"Unknown imputation_strategy: {imputation_strategy}")
 
 
-def _make_preprocessing(imputation_strategy="simple", random_state=None):
+def _make_preprocessing(imputation_strategy="median", random_state=42):
     return Pipeline(
         steps=[
             ("variance", VarianceThreshold(0.01)),
             ("lif", LowInfoFilter()),
-            ("impute", _make_imputer(imputation_strategy, random_state)),
+            ("impute", make_imputer(imputation_strategy, random_state)),
             ("std", StandardScaler()),
         ]
     )
@@ -96,8 +107,8 @@ def multi_omic_stabl_cv(
     late_fusion=True,
     n_iter_lf=10000,
     sgl_corr_percentile=[90],
-    imputation_strategy="simple",
-    random_state=None,
+    imputation_strategy="median",
+    random_state=42,
 ):
     """
     Performs a cross validation on the data_dict using the models and saves the results in save_path.
@@ -164,7 +175,7 @@ def multi_omic_stabl_cv(
     sgl_corr_percentile: list of float, default=[90]
         List of correlation threshold to use for SGL and STABL SGL.
 
-    imputation_strategy: {"simple", "iterative"}, default="simple"
+    imputation_strategy: {"median", "simple", "knn", "iterative"}, default="median"
         Imputation strategy used before standardization.
 
     random_state: int, default=None
@@ -182,15 +193,15 @@ def multi_omic_stabl_cv(
     if early_fusion:
         models += ["EF " + model for model in models if "STABL" not in model]
 
-    lasso = estimators["lasso"]
-    alasso = estimators["alasso"]
-    en = estimators["en"]
-    sgl = estimators["sgl"]
+    lasso = estimators.get("lasso")
+    alasso = estimators.get("alasso")
+    en = estimators.get("en")
+    sgl = estimators.get("sgl")
 
-    stabl = estimators["stabl_lasso"]
-    stabl_alasso = estimators["stabl_alasso"]
-    stabl_en = estimators["stabl_en"]
-    stabl_sgl = estimators["stabl_sgl"]
+    stabl = estimators.get("stabl_lasso")
+    stabl_alasso = estimators.get("stabl_alasso")
+    stabl_en = estimators.get("stabl_en")
+    stabl_sgl = estimators.get("stabl_sgl")
 
     os.makedirs(Path(save_path, "Training CV"), exist_ok=True)
     os.makedirs(Path(save_path, "Summary"), exist_ok=True)
@@ -493,7 +504,10 @@ def multi_omic_stabl_cv(
                 # Standardization
                 std_pipe = Pipeline(
                     steps=[
-                        ("imputer", _make_imputer(imputation_strategy, random_state)),
+                        (
+                            "imputer",
+                            make_imputer(imputation_strategy, random_state),
+                        ),
                         ("std", StandardScaler()),
                     ]
                 )
