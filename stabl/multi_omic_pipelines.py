@@ -193,15 +193,15 @@ def multi_omic_stabl_cv(
     if early_fusion:
         models += ["EF " + model for model in models if "STABL" not in model]
 
-    lasso = estimators["lasso"]
-    alasso = estimators["alasso"]
-    en = estimators["en"]
-    sgl = estimators["sgl"]
+    lasso = estimators.get("lasso")
+    alasso = estimators.get("alasso")
+    en = estimators.get("en")
+    sgl = estimators.get("sgl")
 
-    stabl = estimators["stabl_lasso"]
-    stabl_alasso = estimators["stabl_alasso"]
-    stabl_en = estimators["stabl_en"]
-    stabl_sgl = estimators["stabl_sgl"]
+    stabl = estimators.get("stabl_lasso")
+    stabl_alasso = estimators.get("stabl_alasso")
+    stabl_en = estimators.get("stabl_en")
+    stabl_sgl = estimators.get("stabl_sgl")
 
     os.makedirs(Path(save_path, "Training CV"), exist_ok=True)
     os.makedirs(Path(save_path, "Summary"), exist_ok=True)
@@ -504,7 +504,10 @@ def multi_omic_stabl_cv(
                 # Standardization
                 std_pipe = Pipeline(
                     steps=[
-                        ("imputer", SimpleImputer(strategy="median")),
+                        (
+                            "imputer",
+                            make_imputer(imputation_strategy, random_state),
+                        ),
                         ("std", StandardScaler()),
                     ]
                 )
