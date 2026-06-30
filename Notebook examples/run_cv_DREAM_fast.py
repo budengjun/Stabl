@@ -1,12 +1,140 @@
+import sys
+import atexit
+import urllib.request
+import traceback
+import signal
+from pathlib import Path
+from datetime import datetime
+import socket
+
+_NTFY_TOPIC = "yaolong-dream-cv"
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_LOG_PATH = _SCRIPT_DIR / "dream_fast.log"
+_START_TIME = datetime.now()
+_HOSTNAME = socket.gethostname()
+
+_FAILED = False
+_EXIT_REASON = "completed"
+
+_LOG_FILE = open(_LOG_PATH, "w", encoding="utf-8", buffering=1)
+
+
+class _Tee:
+    def __init__(self, *files):
+        self.files = files
+
+    def write(self, data):
+        for file in self.files:
+            file.write(data)
+            file.flush()
+
+    def flush(self):
+        for file in self.files:
+            file.flush()
+
+
+sys.stdout = _Tee(sys.__stdout__, _LOG_FILE)
+sys.stderr = _Tee(sys.__stderr__, _LOG_FILE)
+
+
+def _send_ntfy(title, message, priority="high", tags="bell"):
+    url = f"https://ntfy.sh/{_NTFY_TOPIC}"
+
+    req = urllib.request.Request(
+        url,
+        data=message.encode("utf-8"),
+        method="POST",
+        headers={
+            "Title": title,
+            "Priority": priority,
+            "Tags": tags,
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            response.read()
+    except Exception as error:
+        print(f"[ntfy failed] {error}", file=sys.__stderr__)
+
+
+print(f"===== DREAM fast run started at {_START_TIME} on {_HOSTNAME} =====")
+print(f"===== Log file: {_LOG_PATH} =====")
+
+
+_send_ntfy(
+    title="DREAM fast started",
+    message=f"python run_cv_DREAM_fast.py started on {_HOSTNAME}. Output is being written to dream_fast.log.",
+    priority="default",
+    tags="rocket",
+)
+
+
+def _handle_exception(exc_type, exc_value, exc_traceback):
+    global _FAILED, _EXIT_REASON
+    _FAILED = True
+    _EXIT_REASON = f"exception: {exc_type.__name__}"
+    traceback.print_exception(exc_type, exc_value, exc_traceback)
+
+
+sys.excepthook = _handle_exception
+
+
+def _handle_signal(signum, frame):
+    global _FAILED, _EXIT_REASON
+    _FAILED = True
+    _EXIT_REASON = f"terminated by signal {signum}"
+    print(f"\n===== DREAM fast run interrupted by signal {signum} =====", flush=True)
+    raise SystemExit(128 + signum)
+
+
+signal.signal(signal.SIGINT, _handle_signal)
+signal.signal(signal.SIGTERM, _handle_signal)
+
+
+def _finish_notify():
+    end_time = datetime.now()
+    elapsed = end_time - _START_TIME
+
+    print()
+    print(f"===== DREAM fast run ended at {end_time} =====")
+    print(f"===== Elapsed time: {elapsed} =====")
+    print(f"===== Status: {'FAILED' if _FAILED else 'SUCCESS'} =====")
+    print(f"===== Reason: {_EXIT_REASON} =====")
+    print(f"===== Log file: {_LOG_PATH} =====", flush=True)
+
+    if _FAILED:
+        _send_ntfy(
+            title="DREAM fast failed",
+            message=f"run_cv_DREAM_fast.py did not finish successfully. Reason: {_EXIT_REASON}. Check dream_fast.log. Elapsed: {elapsed}",
+            priority="urgent",
+            tags="warning",
+        )
+    else:
+        _send_ntfy(
+            title="DREAM fast finished",
+            message=f"run_cv_DREAM_fast.py has finished. Output file dream_fast.log is ready. Elapsed: {elapsed}",
+            priority="high",
+            tags="white_check_mark",
+        )
+
+    try:
+        _LOG_FILE.close()
+    except Exception:
+        pass
+
+
+atexit.register(_finish_notify)
+
 """
 Faster development version of run_cv_DREAM.py.
 
 Main changes vs original:
-- Outer CV: 100 splits -> 10 splits
-- Inner CV: 5 folds x 5 repeats -> 3 folds x 1 repeat
+- Outer CV: 100 splits -> 50 splits
+- Inner CV: 5 folds x 5 repeats -> 3 folds x 3 repeat
 - GridSearch parameter grids are smaller
 - STABL bootstraps reduced
-- Late fusion iterations: 1000 -> 100
+- Late fusion iterations: 1000 -> 50
 - n_jobs capped to avoid nested parallelism overload
 - Results saved to ./Results Dream Fast so original outputs are not overwritten
 
@@ -43,23 +171,23 @@ random.seed(random_seed)
 np.random.seed(random_seed)
 
 # Original was: 5 splits x 5 repeats = 25 inner folds.
-# This version uses 3 inner folds total.
+# This version uses 9 inner folds total.
 INNER_SPLITS = 3
-INNER_REPEATS = 1
+INNER_REPEATS = 3
 
 # Original was 100 outer splits.
 # This version uses 50 outer splits.
 OUTER_SPLITS = 50
 
 # Original late-fusion iterations were 1000.
-N_ITER_LF = 100
+N_ITER_LF = 50
 
 # Original STABL bootstraps were 100 for lasso/alasso and 50 for en/sgl.
-STABL_BOOTSTRAPS_MAIN = 20
-STABL_BOOTSTRAPS_SECONDARY = 20
+STABL_BOOTSTRAPS_MAIN = 50
+STABL_BOOTSTRAPS_SECONDARY = 25
 
 # Avoid nested parallelism overload. If your server has more cores, you can try 4 or -1.
-N_JOBS = 4
+N_JOBS = -1
 
 chosen_inner_cv = RepeatedStratifiedKFold(
     n_splits=INNER_SPLITS,
@@ -244,7 +372,7 @@ multi_omic_stabl_cv(
     task_type=task_type,
     save_path="./Results Dream Fast",
     outer_groups=ids,
-    early_fusion=True,
+    early_fusion=False,
     models=models,
     late_fusion=True,
     n_iter_lf=N_ITER_LF,
