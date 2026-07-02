@@ -17,7 +17,7 @@ from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import ParameterGrid, GroupShuffleSplit, KFold
 from sklearn.utils import safe_mask
 from sklearn.utils.class_weight import compute_sample_weight
-from sklearn.utils.validation import _check_feature_names_in, check_is_fitted
+from sklearn.utils.validation import _check_feature_names_in, check_array, check_is_fitted
 from sklearn.metrics import r2_score, roc_auc_score
 from tqdm.autonotebook import tqdm
 from .unionfind import UnionFind
@@ -967,7 +967,7 @@ class Stabl(SelectorMixin, BaseEstimator):
             ]
             return g
 
-    def fit(self, X, y, groups=None):
+    def fit(self, X, y, groups=None, X_artificial=None):
         """Fit the stability selection model on the given data.
         Parameters
         ----------
@@ -975,6 +975,11 @@ class Stabl(SelectorMixin, BaseEstimator):
             The training input samples.
         y : array-like, shape=(n_repeats, )
             The target values.
+
+        X_artificial : array-like or sparse matrix, shape=(n_repeats, n_artificial_features), default=None
+            Optional precomputed artificial features. When supplied, these
+            features are concatenated to X after validation and used for FDP+
+            estimation instead of generating artificial features inside fit.
         """
         self._validate_input()
         X_old, y_old = X, y
@@ -989,6 +994,18 @@ class Stabl(SelectorMixin, BaseEstimator):
 
         # Defining the number of injected noisy features
         n_injected_noise = int(X.shape[1] * self.artificial_proportion)
+        if X_artificial is not None:
+            X_artificial = check_array(X_artificial)
+            if X_artificial.shape[0] != n_samples:
+                raise ValueError(
+                    "X_artificial must have the same number of samples as X. "
+                    f"Got {X_artificial.shape[0]} and {n_samples}."
+                )
+            if self.artificial_type is None:
+                raise ValueError(
+                    "X_artificial can only be supplied when artificial_type is not None."
+                )
+            n_injected_noise = X_artificial.shape[1]
 
         base_estimator = clone(self.base_estimator)
 
@@ -999,13 +1016,18 @@ class Stabl(SelectorMixin, BaseEstimator):
         if self.artificial_type is not None:
             # Only initialize those score if we use artificial features
             self.stabl_scores_artificial_ = np.zeros((n_injected_noise, n_lambdas))
-            X_ = self._make_artificial_features(
-                X=X,
-                nb_noise=n_injected_noise,
-                artificial_type=self.artificial_type,
-                random_state=self.random_state,
-            )
-            X = X_
+            if X_artificial is None:
+                X_ = self._make_artificial_features(
+                    X=X,
+                    nb_noise=n_injected_noise,
+                    artificial_type=self.artificial_type,
+                    random_state=self.random_state,
+                )
+                X = X_
+            else:
+                self.noise_group = np.arange(n_injected_noise)
+                self.X_artificial_ = np.array(X_artificial)
+                X = np.concatenate([np.array(X), self.X_artificial_], axis=1)
         X = np.array(X)
         corr_groups = None
         if self.perc_corr_group_threshold is not None or self.sgl_groups is not None:

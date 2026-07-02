@@ -14,6 +14,14 @@ Use this for smoke tests / development. For final experiments, gradually increas
 N_OUTER_SPLITS, INNER_REPEATS, STABL_BOOTSTRAPS, and N_ITER_LF.
 """
 
+from run_notifications import install_run_notifier
+
+install_run_notifier(
+    "DREAM fast",
+    log_name="dream_fast.log",
+    topic="yaolong-dream-cv",
+)
+
 from julia.api import Julia
 
 

@@ -135,9 +135,9 @@ dmypy.json
 Sample Data/Synthetic/*
 !Sample Data/Synthetic/runner.jl
 /Synthetic Linear/
-/Notebook examples/Results Dream/
+/Notebook examples/Results*
+/Notebook examples/*.log
 Sample Data/
-Results Dream Fast/
 
 # VS Code
 .vscode/

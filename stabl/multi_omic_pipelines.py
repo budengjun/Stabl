@@ -74,6 +74,129 @@ def _make_preprocessing(imputation_strategy="median", random_state=42):
     )
 
 
+def _make_feature_filter():
+    return Pipeline(
+        steps=[
+            ("variance", VarianceThreshold(0.01)),
+            ("lif", LowInfoFilter()),
+        ]
+    )
+
+
+STABL_DECOY_METRIC_COLUMNS = [
+    "Decoy timing",
+    "min FDP+",
+    "Threshold",
+    "Real SF mean",
+    "Real SF median",
+    "Real SF q75",
+    "Real SF max",
+    "Artificial SF mean",
+    "Artificial SF median",
+    "Artificial SF q75",
+    "Artificial SF max",
+    "Artificial/real SF mean",
+    "Artificial/real SF median",
+]
+
+
+def _summarize_artificial_fit(stabl_model, artificial_injection_timing):
+    real_scores = np.max(stabl_model.stabl_scores_, axis=1)
+    artificial_scores = np.max(stabl_model.stabl_scores_artificial_, axis=1)
+    real_mean = np.mean(real_scores)
+    real_median = np.median(real_scores)
+
+    return pd.Series(
+        {
+            "Decoy timing": artificial_injection_timing,
+            "min FDP+": stabl_model.min_fdr_,
+            "Threshold": stabl_model.fdr_min_threshold_,
+            "Real SF mean": real_mean,
+            "Real SF median": real_median,
+            "Real SF q75": np.percentile(real_scores, 75),
+            "Real SF max": np.max(real_scores),
+            "Artificial SF mean": np.mean(artificial_scores),
+            "Artificial SF median": np.median(artificial_scores),
+            "Artificial SF q75": np.percentile(artificial_scores, 75),
+            "Artificial SF max": np.max(artificial_scores),
+            "Artificial/real SF mean": np.mean(artificial_scores) / real_mean
+            if real_mean > 0
+            else np.nan,
+            "Artificial/real SF median": np.median(artificial_scores) / real_median
+            if real_median > 0
+            else np.nan,
+        }
+    )
+
+
+def _fit_stabl_with_timing(
+    stabl_model,
+    X_raw,
+    X_post_impute,
+    y,
+    groups,
+    imputation_strategy,
+    artificial_injection_timing,
+    random_state,
+):
+    if artificial_injection_timing == "post_impute":
+        stabl_model.fit(X_post_impute, y, groups=groups)
+        return X_post_impute
+
+    if artificial_injection_timing != "pre_impute":
+        raise ValueError(
+            "artificial_injection_timing must be 'post_impute' or 'pre_impute'. "
+            f"Got {artificial_injection_timing}."
+        )
+
+    if stabl_model.artificial_type != "random_permutation":
+        raise ValueError(
+            "pre_impute artificial injection currently requires "
+            "artificial_type='random_permutation' so decoys can carry missing "
+            "values through the same imputer as real features."
+        )
+
+    feature_filter = _make_feature_filter()
+    X_real_raw = pd.DataFrame(
+        data=feature_filter.fit_transform(X_raw),
+        index=X_raw.index,
+        columns=feature_filter.get_feature_names_out(),
+    )
+
+    n_artificial = int(X_real_raw.shape[1] * stabl_model.artificial_proportion)
+    artificial_generator = clone(stabl_model)
+    X_combined_raw = artificial_generator._make_artificial_features(
+        X=X_real_raw,
+        artificial_type=stabl_model.artificial_type,
+        nb_noise=n_artificial,
+        random_state=stabl_model.random_state,
+    )
+
+    artificial_columns = [f"artificial.{i + 1}" for i in range(n_artificial)]
+    X_combined_raw = pd.DataFrame(
+        data=X_combined_raw,
+        index=X_real_raw.index,
+        columns=list(X_real_raw.columns) + artificial_columns,
+    )
+
+    impute_std = Pipeline(
+        steps=[
+            ("impute", make_imputer(imputation_strategy, random_state)),
+            ("std", StandardScaler()),
+        ]
+    )
+    X_combined_std = pd.DataFrame(
+        data=impute_std.fit_transform(X_combined_raw),
+        index=X_combined_raw.index,
+        columns=X_combined_raw.columns,
+    )
+
+    X_real_std = X_combined_std.loc[:, X_real_raw.columns]
+    X_artificial_std = X_combined_std.loc[:, artificial_columns]
+    stabl_model.fit(X_real_std, y, groups=groups, X_artificial=X_artificial_std)
+    return X_real_std
+
+
 preprocessing = _make_preprocessing()
 
 
@@ -108,6 +231,7 @@ def multi_omic_stabl_cv(
     n_iter_lf=10000,
     sgl_corr_percentile=[90],
     imputation_strategy="median",
+    artificial_injection_timing="post_impute",
     random_state=42,
 ):
     """
@@ -178,6 +302,12 @@ def multi_omic_stabl_cv(
     imputation_strategy: {"median", "simple", "knn", "iterative"}, default="median"
         Imputation strategy used before standardization.
 
+    artificial_injection_timing: {"post_impute", "pre_impute"}, default="post_impute"
+        Controls whether STABL artificial features are generated after
+        imputation/standardization, or before imputation so real and artificial
+        features pass through the same imputer. The pre-impute mode currently
+        supports random_permutation artificial features.
+
     random_state: int, default=None
         Seed used by stochastic preprocessing and late fusion.
 
@@ -188,6 +318,11 @@ def multi_omic_stabl_cv(
     """
     if not isinstance(sgl_corr_percentile, list):
         sgl_corr_percentile = [sgl_corr_percentile]
+    if artificial_injection_timing not in {"post_impute", "pre_impute"}:
+        raise ValueError(
+            "artificial_injection_timing must be 'post_impute' or 'pre_impute'. "
+            f"Got {artificial_injection_timing}."
+        )
     preprocessing = _make_preprocessing(imputation_strategy, random_state)
 
     if early_fusion:
@@ -212,15 +347,20 @@ def multi_omic_stabl_cv(
     predictions_dict = dict()
     selected_features_dict = dict()
     stabl_features_dict = dict()
+    stabl_decoy_metrics_dict = dict()
 
     for model in models:
         predictions_dict[model] = pd.DataFrame(data=None, index=y.index)
         selected_features_dict[model] = []
         stabl_features_dict[model] = dict()
+        stabl_decoy_metrics_dict[model] = dict()
         for omic_name in data_dict.keys():
             if "STABL" in model:
                 stabl_features_dict[model][omic_name] = pd.DataFrame(
                     data=None, columns=["Threshold", "min FDP+"]
+                )
+                stabl_decoy_metrics_dict[model][omic_name] = pd.DataFrame(
+                    columns=STABL_DECOY_METRIC_COLUMNS
                 )
 
     k = 1
@@ -276,7 +416,16 @@ def multi_omic_stabl_cv(
             if "STABL Lasso" in models:
                 # fit STABL Lasso
                 print("Fitting of STABL Lasso")
-                stabl.fit(X_tmp_std, y_tmp, groups=groups)
+                stabl_fit_X = _fit_stabl_with_timing(
+                    stabl,
+                    X_tmp,
+                    X_tmp_std,
+                    y_tmp,
+                    groups,
+                    imputation_strategy,
+                    artificial_injection_timing,
+                    random_state,
+                )
                 tmp_sel_features = list(stabl.get_feature_names_out())
                 fold_selected_features["STABL Lasso"].extend(tmp_sel_features)
                 print(
@@ -289,6 +438,12 @@ def multi_omic_stabl_cv(
                 stabl_features_dict["STABL Lasso"][omic_name].loc[
                     f"Fold n°{k}", "Threshold"
                 ] = stabl.fdr_min_threshold_
+                decoy_metrics = _summarize_artificial_fit(
+                    stabl, artificial_injection_timing
+                )
+                stabl_decoy_metrics_dict["STABL Lasso"][omic_name].loc[
+                    f"Fold n°{k}", decoy_metrics.index
+                ] = decoy_metrics
                 if k == 1:
                     save_stabl_results(
                         stabl=stabl,
@@ -297,7 +452,7 @@ def multi_omic_stabl_cv(
                             "Training CV",
                             f"STABL Lasso results on {omic_name}",
                         ),
-                        df_X=X_tmp_std,
+                        df_X=stabl_fit_X,
                         y=y_tmp,
                         task_type=task_type,
                     )
@@ -305,7 +460,16 @@ def multi_omic_stabl_cv(
             if "STABL ALasso" in models:
                 # fit STABL ALasso
                 print("Fitting of STABL ALasso")
-                stabl_alasso.fit(X_tmp_std, y_tmp, groups=groups)
+                stabl_alasso_fit_X = _fit_stabl_with_timing(
+                    stabl_alasso,
+                    X_tmp,
+                    X_tmp_std,
+                    y_tmp,
+                    groups,
+                    imputation_strategy,
+                    artificial_injection_timing,
+                    random_state,
+                )
                 tmp_sel_features = list(stabl_alasso.get_feature_names_out())
                 fold_selected_features["STABL ALasso"].extend(tmp_sel_features)
                 print(
@@ -318,6 +482,12 @@ def multi_omic_stabl_cv(
                 stabl_features_dict["STABL ALasso"][omic_name].loc[
                     f"Fold n°{k}", "Threshold"
                 ] = stabl_alasso.fdr_min_threshold_
+                decoy_metrics = _summarize_artificial_fit(
+                    stabl_alasso, artificial_injection_timing
+                )
+                stabl_decoy_metrics_dict["STABL ALasso"][omic_name].loc[
+                    f"Fold n°{k}", decoy_metrics.index
+                ] = decoy_metrics
                 if k == 1:
                     save_stabl_results(
                         stabl=stabl_alasso,
@@ -326,7 +496,7 @@ def multi_omic_stabl_cv(
                             "Training CV",
                             f"STABL ALasso results on {omic_name}",
                         ),
-                        df_X=X_tmp_std,
+                        df_X=stabl_alasso_fit_X,
                         y=y_tmp,
                         task_type=task_type,
                     )
@@ -334,7 +504,16 @@ def multi_omic_stabl_cv(
             if "STABL ElasticNet" in models:
                 # fit STABL ElasticNet
                 print("Fitting of STABL ElasticNet")
-                stabl_en.fit(X_tmp_std, y_tmp, groups=groups)
+                stabl_en_fit_X = _fit_stabl_with_timing(
+                    stabl_en,
+                    X_tmp,
+                    X_tmp_std,
+                    y_tmp,
+                    groups,
+                    imputation_strategy,
+                    artificial_injection_timing,
+                    random_state,
+                )
                 tmp_sel_features = list(stabl_en.get_feature_names_out())
                 fold_selected_features["STABL ElasticNet"].extend(tmp_sel_features)
                 print(
@@ -347,6 +526,12 @@ def multi_omic_stabl_cv(
                 stabl_features_dict["STABL ElasticNet"][omic_name].loc[
                     f"Fold n°{k}", "Threshold"
                 ] = stabl_en.fdr_min_threshold_
+                decoy_metrics = _summarize_artificial_fit(
+                    stabl_en, artificial_injection_timing
+                )
+                stabl_decoy_metrics_dict["STABL ElasticNet"][omic_name].loc[
+                    f"Fold n°{k}", decoy_metrics.index
+                ] = decoy_metrics
                 if k == 1:
                     save_stabl_results(
                         stabl=stabl_en,
@@ -355,7 +540,7 @@ def multi_omic_stabl_cv(
                             "Training CV",
                             f"STABL ElasticNet results on {omic_name}",
                         ),
-                        df_X=X_tmp_std,
+                        df_X=stabl_en_fit_X,
                         y=y_tmp,
                         task_type=task_type,
                     )
@@ -366,7 +551,16 @@ def multi_omic_stabl_cv(
                     stabl_sgl_corr = clone(stabl_sgl).set_params(
                         perc_corr_group_threshold=sgl_corr
                     )
-                    stabl_sgl_corr.fit(X_tmp_std, y_tmp, groups=groups)
+                    stabl_sgl_corr_fit_X = _fit_stabl_with_timing(
+                        stabl_sgl_corr,
+                        X_tmp,
+                        X_tmp_std,
+                        y_tmp,
+                        groups,
+                        imputation_strategy,
+                        artificial_injection_timing,
+                        random_state,
+                    )
                     tmp_sel_features = list(stabl_sgl_corr.get_feature_names_out())
                     fold_selected_features[f"STABL SGL-{sgl_corr}"].extend(
                         tmp_sel_features
@@ -381,6 +575,12 @@ def multi_omic_stabl_cv(
                     stabl_features_dict[f"STABL SGL-{sgl_corr}"][omic_name].loc[
                         f"Fold n°{k}", "Threshold"
                     ] = stabl_sgl_corr.fdr_min_threshold_
+                    decoy_metrics = _summarize_artificial_fit(
+                        stabl_sgl_corr, artificial_injection_timing
+                    )
+                    stabl_decoy_metrics_dict[f"STABL SGL-{sgl_corr}"][omic_name].loc[
+                        f"Fold n°{k}", decoy_metrics.index
+                    ] = decoy_metrics
                     if k == 1:
                         save_stabl_results(
                             stabl=stabl_sgl_corr,
@@ -389,7 +589,7 @@ def multi_omic_stabl_cv(
                                 "Training CV",
                                 f"STABL SGL-{sgl_corr} results on {omic_name}",
                             ),
-                            df_X=X_tmp_std,
+                            df_X=stabl_sgl_corr_fit_X,
                             y=y_tmp,
                             task_type=task_type,
                         )
@@ -725,6 +925,13 @@ def multi_omic_stabl_cv(
                         cv_res_path,
                         f"Stabl features {model}",
                         f"Stabl features {model} {omic_name}.csv",
+                    )
+                )
+                stabl_decoy_metrics_dict[model][omic_name].to_csv(
+                    Path(
+                        cv_res_path,
+                        f"Stabl features {model}",
+                        f"Stabl decoy timing metrics {model} {omic_name}.csv",
                     )
                 )
 
