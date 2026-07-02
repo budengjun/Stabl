@@ -2,11 +2,11 @@
 Full-scale comparison of SimpleImputer vs IterativeImputer for STABL on
 Biobank SSI / CyTOF.csv.
 
-This is the NON-FAST counterpart of run_cv_SSI_imputer_compare.py. The CV
-rigor (outer/inner repeats, bootstrap counts, lambda / FDR grids) and the full
-estimator suite are taken verbatim from run_cv_SSI.py; the imputer-comparison
-harness (CLI mode switch, CyTOF-only block, missingness report, imputation
-strategy passthrough, per-mode save path) is kept from the fast script.
+This is run_cv_SSI.py at full CV rigor and full estimator suite, with two
+additions layered on top:
+    1. imputer selection: a CLI mode switch (simple | iterative), CyTOF-only
+       block, missingness report, and imputation strategy passthrough;
+    2. run notifier: install_run_notifier for logging / completion notice.
 
 Usage:
     python run_cv_SSI_imputer_compare_full.py simple
@@ -22,10 +22,9 @@ Primary metrics to inspect:
     - CVS (Jaccard stability, median [Q1, Q3])
     - Artificial/real SF mean and median (decoy calibration)
 
-Note on runtime: this configuration is heavy (5x20 outer CV, 5x5 inner CV,
-up to 500 bootstraps per STABL fit, four base learners plus their STABL
-variants, two imputer modes). Expect a long wall-clock time compared to the
-fast script.
+Note on runtime: this is the heaviest configuration (5x20 outer CV, 5x5 inner
+CV, up to 500 bootstraps per STABL Lasso fit, four base learners plus their
+STABL variants, two imputer modes). Expect a long wall-clock time.
 """
 
 import sys
@@ -37,6 +36,13 @@ if len(sys.argv) != 2 or sys.argv[1] not in ("simple", "iterative"):
 
 
 imputer_mode = sys.argv[1]
+
+from run_notifications import install_run_notifier
+
+install_run_notifier(
+    f"SSI CyTOF imputer compare full ({imputer_mode})",
+    log_name=f"ssi_imputer_compare_full_{imputer_mode}.log",
+)
 
 from julia.api import Julia
 
@@ -210,8 +216,8 @@ multi_omic_stabl_cv(
     save_path=f"./Results SSI - {imputer_mode}",
     outer_groups=ids,
     # Single omic block: early fusion would just re-run the same block, and
-    # late fusion collapses to a trivial one-omic weighting, so n_iter_lf is
-    # kept at 1 (any larger value buys nothing with one block).
+    # late fusion collapses to a trivial one-omic weighting, so n_iter_lf stays
+    # at 1 (any larger value buys nothing with one block).
     early_fusion=False,
     models=models,
     late_fusion=True,
