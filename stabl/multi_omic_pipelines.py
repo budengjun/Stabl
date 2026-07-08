@@ -149,11 +149,11 @@ def _fit_stabl_with_timing(
             f"Got {artificial_injection_timing}."
         )
 
-    if stabl_model.artificial_type != "random_permutation":
+    if stabl_model.artificial_type not in {"random_permutation", "knockoff"}:
         raise ValueError(
-            "pre_impute artificial injection currently requires "
-            "artificial_type='random_permutation' so decoys can carry missing "
-            "values through the same imputer as real features."
+            "pre_impute artificial injection currently supports "
+            "artificial_type='random_permutation' or artificial_type='knockoff'. "
+            f"Got {stabl_model.artificial_type}."
         )
 
     feature_filter = _make_feature_filter()
@@ -165,12 +165,44 @@ def _fit_stabl_with_timing(
 
     n_artificial = int(X_real_raw.shape[1] * stabl_model.artificial_proportion)
     artificial_generator = clone(stabl_model)
-    X_combined_raw = artificial_generator._make_artificial_features(
-        X=X_real_raw,
-        artificial_type=stabl_model.artificial_type,
-        nb_noise=n_artificial,
-        random_state=stabl_model.random_state,
-    )
+
+    if stabl_model.artificial_type == "random_permutation":
+        X_combined_raw = artificial_generator._make_artificial_features(
+            X=X_real_raw,
+            artificial_type=stabl_model.artificial_type,
+            nb_noise=n_artificial,
+            random_state=stabl_model.random_state,
+        )
+        X_artificial_raw = artificial_generator.X_artificial_
+
+    else:
+        # MX knockoff generators require a complete design matrix. For the
+        # pre-impute timing experiment, use a temporary imputed copy only to
+        # estimate/generate the knockoffs, then put the paired real-feature
+        # missingness pattern back onto the knockoff columns before joint
+        # imputation and standardization. This keeps the downstream treatment
+        # of real and artificial features identical.
+        knockoff_imputer = make_imputer(imputation_strategy, random_state)
+        X_for_knockoff = pd.DataFrame(
+            data=knockoff_imputer.fit_transform(X_real_raw),
+            index=X_real_raw.index,
+            columns=X_real_raw.columns,
+        )
+        artificial_generator._make_artificial_features(
+            X=X_for_knockoff,
+            artificial_type=stabl_model.artificial_type,
+            nb_noise=n_artificial,
+            random_state=stabl_model.random_state,
+        )
+        X_artificial_raw = artificial_generator.X_artificial_.copy()
+
+        paired_missing_mask = X_real_raw.iloc[
+            :, artificial_generator.noise_group
+        ].isna().to_numpy()
+        X_artificial_raw[paired_missing_mask] = np.nan
+        X_combined_raw = np.concatenate(
+            [np.array(X_real_raw), X_artificial_raw], axis=1
+        )
 
     artificial_columns = [f"artificial.{i + 1}" for i in range(n_artificial)]
     X_combined_raw = pd.DataFrame(
@@ -305,8 +337,11 @@ def multi_omic_stabl_cv(
     artificial_injection_timing: {"post_impute", "pre_impute"}, default="post_impute"
         Controls whether STABL artificial features are generated after
         imputation/standardization, or before imputation so real and artificial
-        features pass through the same imputer. The pre-impute mode currently
-        supports random_permutation artificial features.
+        features pass through the same imputer. The pre-impute mode supports
+        random_permutation and knockoff artificial features. For knockoffs, a
+        temporary imputed copy is used only to generate the knockoffs, and the
+        paired real-feature missingness pattern is applied to the knockoff
+        columns before joint imputation/standardization.
 
     random_state: int, default=None
         Seed used by stochastic preprocessing and late fusion.
