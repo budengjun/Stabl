@@ -1,30 +1,32 @@
-from .unionfind import UnionFind
-import sys
-from tqdm.autonotebook import tqdm
-from .pipelines_utils import save_plots, compute_scores_table, compute_pvalues_table
-from .stacked_generalization import stacked_multi_omic
-from .metrics import jaccard_matrix
-from .stabl import save_stabl_results
-from .preprocessing import remove_low_info_samples, LowInfoFilter
-from sklearn.model_selection import (
-    RepeatedKFold,
-    RepeatedStratifiedKFold,
-    GroupShuffleSplit,
-)
-from sklearn.feature_selection import VarianceThreshold
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
-from sklearn.linear_model import BayesianRidge, LogisticRegression, LinearRegression
-from sklearn.experimental import enable_iterative_imputer  # noqa: F401
-from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
-from sklearn import clone
-from pathlib import Path
 import os
+import sys
+import warnings
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-import warnings
+from sklearn import clone
 from sklearn.exceptions import ConvergenceWarning
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+from sklearn.feature_selection import VarianceThreshold
+from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
+from sklearn.linear_model import BayesianRidge, LinearRegression, LogisticRegression
+from sklearn.model_selection import (
+    GroupShuffleSplit,
+    RepeatedKFold,
+    RepeatedStratifiedKFold,
+)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.utils._testing import ignore_warnings
+from tqdm.autonotebook import tqdm
+
+from .metrics import jaccard_matrix
+from .pipelines_utils import compute_pvalues_table, compute_scores_table, save_plots
+from .preprocessing import LowInfoFilter, remove_low_info_samples
+from .stabl import save_stabl_results
+from .stacked_generalization import stacked_multi_omic
+from .unionfind import UnionFind
 
 warnings.filterwarnings("ignore")
 warnings.simplefilter("ignore", category=ConvergenceWarning)
@@ -129,6 +131,122 @@ def _summarize_artificial_fit(stabl_model, artificial_injection_timing):
     )
 
 
+def _make_completion_imputer(strategy, random_state):
+    """Imputer used only by the repaired pre_impute knockoff branch."""
+    if strategy == "iterative_posterior":
+        return IterativeImputer(
+            estimator=BayesianRidge(),
+            max_iter=10,
+            n_nearest_features=50,
+            initial_strategy="median",
+            skip_complete=True,
+            imputation_order="ascending",
+            sample_posterior=True,
+            random_state=random_state,
+        )
+    return make_imputer(strategy, random_state)
+
+
+def _complete_real_block(X_real_raw, strategy, random_state):
+    imputer = _make_completion_imputer(strategy, random_state)
+    return pd.DataFrame(
+        imputer.fit_transform(X_real_raw),
+        index=X_real_raw.index,
+        columns=X_real_raw.columns,
+    )
+
+
+def _make_ordered_knockoffs(stabl_model, X_complete):
+    """Generate MX knockoffs and align artificial column i to real column i."""
+    n_real = X_complete.shape[1]
+    n_artificial = int(n_real * stabl_model.artificial_proportion)
+    if n_artificial != n_real:
+        raise ValueError(
+            "The repaired pre_impute knockoff branch currently requires "
+            "artificial_proportion=1.0 so each real feature has one paired knockoff."
+        )
+
+    generator = clone(stabl_model)
+    generator._make_artificial_features(
+        X=X_complete,
+        artificial_type="knockoff",
+        nb_noise=n_artificial,
+        random_state=stabl_model.random_state,
+    )
+
+    knockoffs = np.asarray(generator.X_artificial_)
+    pairing = np.asarray(generator.noise_group)
+    ordered = np.empty_like(knockoffs)
+    ordered[:, pairing] = knockoffs
+    return ordered
+
+
+def _fit_pre_impute_knockoff(
+    stabl_model,
+    X_real_raw,
+    y,
+    groups,
+    knockoff_impute_strategy,
+    n_knockoff_imputations,
+    random_state,
+):
+    """
+    Repaired pre_impute knockoff path.
+
+    The old implementation generated knockoffs on a temporarily imputed matrix,
+    copied the real missingness mask onto the knockoffs, then median-imputed the
+    knockoffs a second time. That second deterministic imputation can collapse
+    knockoff missing cells into constants and distort FDP+ calibration.
+
+    This branch instead draws one or more stochastic completions of the real
+    block, generates MX knockoffs on each completed block, standardizes real and
+    knockoff columns together, fits STABL, and pools stability scores.
+    """
+    real_cols = list(X_real_raw.columns)
+    n_real = len(real_cols)
+    artificial_cols = [f"artificial.{i + 1}" for i in range(n_real)]
+    M = max(1, int(n_knockoff_imputations))
+
+    fitted_model = None
+    first_real_std = None
+    pooled_real = None
+    pooled_artificial = None
+
+    for m in range(M):
+        seed = None if random_state is None else random_state + m
+        X_complete = _complete_real_block(X_real_raw, knockoff_impute_strategy, seed)
+        X_knockoff = _make_ordered_knockoffs(stabl_model, X_complete)
+
+        X_both = np.concatenate([X_complete.to_numpy(), X_knockoff], axis=1)
+        X_both = StandardScaler().fit_transform(X_both)
+
+        X_real_std = pd.DataFrame(
+            X_both[:, :n_real], index=X_real_raw.index, columns=real_cols
+        )
+        X_artificial_std = pd.DataFrame(
+            X_both[:, n_real:], index=X_real_raw.index, columns=artificial_cols
+        )
+
+        model = stabl_model if m == 0 else clone(stabl_model)
+        model.fit(X_real_std, y, groups=groups, X_artificial=X_artificial_std)
+
+        if pooled_real is None:
+            pooled_real = np.zeros_like(model.stabl_scores_)
+            pooled_artificial = np.zeros_like(model.stabl_scores_artificial_)
+
+        pooled_real += model.stabl_scores_
+        pooled_artificial += model.stabl_scores_artificial_
+
+        if fitted_model is None:
+            fitted_model = model
+            first_real_std = X_real_std
+
+    fitted_model.stabl_scores_ = pooled_real / M
+    fitted_model.stabl_scores_artificial_ = pooled_artificial / M
+    fitted_model._compute_FDRc()
+    return first_real_std
+
+
 def _fit_stabl_with_timing(
     stabl_model,
     X_raw,
@@ -138,6 +256,8 @@ def _fit_stabl_with_timing(
     imputation_strategy,
     artificial_injection_timing,
     random_state,
+    knockoff_impute_strategy="iterative_posterior",
+    n_knockoff_imputations=1,
 ):
     if artificial_injection_timing == "post_impute":
         stabl_model.fit(X_post_impute, y, groups=groups)
@@ -163,47 +283,25 @@ def _fit_stabl_with_timing(
         columns=feature_filter.get_feature_names_out(),
     )
 
+    if stabl_model.artificial_type == "knockoff":
+        return _fit_pre_impute_knockoff(
+            stabl_model=stabl_model,
+            X_real_raw=X_real_raw,
+            y=y,
+            groups=groups,
+            knockoff_impute_strategy=knockoff_impute_strategy,
+            n_knockoff_imputations=n_knockoff_imputations,
+            random_state=random_state,
+        )
+
     n_artificial = int(X_real_raw.shape[1] * stabl_model.artificial_proportion)
     artificial_generator = clone(stabl_model)
-
-    if stabl_model.artificial_type == "random_permutation":
-        X_combined_raw = artificial_generator._make_artificial_features(
-            X=X_real_raw,
-            artificial_type=stabl_model.artificial_type,
-            nb_noise=n_artificial,
-            random_state=stabl_model.random_state,
-        )
-        X_artificial_raw = artificial_generator.X_artificial_
-
-    else:
-        # MX knockoff generators require a complete design matrix. For the
-        # pre-impute timing experiment, use a temporary imputed copy only to
-        # estimate/generate the knockoffs, then put the paired real-feature
-        # missingness pattern back onto the knockoff columns before joint
-        # imputation and standardization. This keeps the downstream treatment
-        # of real and artificial features identical.
-        knockoff_imputer = make_imputer(imputation_strategy, random_state)
-        X_for_knockoff = pd.DataFrame(
-            data=knockoff_imputer.fit_transform(X_real_raw),
-            index=X_real_raw.index,
-            columns=X_real_raw.columns,
-        )
-        artificial_generator._make_artificial_features(
-            X=X_for_knockoff,
-            artificial_type=stabl_model.artificial_type,
-            nb_noise=n_artificial,
-            random_state=stabl_model.random_state,
-        )
-        X_artificial_raw = artificial_generator.X_artificial_.copy()
-
-        paired_missing_mask = X_real_raw.iloc[
-            :, artificial_generator.noise_group
-        ].isna().to_numpy()
-        X_artificial_raw[paired_missing_mask] = np.nan
-        X_combined_raw = np.concatenate(
-            [np.array(X_real_raw), X_artificial_raw], axis=1
-        )
-
+    X_combined_raw = artificial_generator._make_artificial_features(
+        X=X_real_raw,
+        artificial_type=stabl_model.artificial_type,
+        nb_noise=n_artificial,
+        random_state=stabl_model.random_state,
+    )
     artificial_columns = [f"artificial.{i + 1}" for i in range(n_artificial)]
     X_combined_raw = pd.DataFrame(
         data=X_combined_raw,
@@ -227,7 +325,6 @@ def _fit_stabl_with_timing(
     X_artificial_std = X_combined_std.loc[:, artificial_columns]
     stabl_model.fit(X_real_std, y, groups=groups, X_artificial=X_artificial_std)
     return X_real_std
-
 
 preprocessing = _make_preprocessing()
 
@@ -264,6 +361,8 @@ def multi_omic_stabl_cv(
     sgl_corr_percentile=[90],
     imputation_strategy="median",
     artificial_injection_timing="post_impute",
+    knockoff_impute_strategy="iterative_posterior",
+    n_knockoff_imputations=1,
     random_state=42,
 ):
     """
@@ -342,6 +441,12 @@ def multi_omic_stabl_cv(
         temporary imputed copy is used only to generate the knockoffs, and the
         paired real-feature missingness pattern is applied to the knockoff
         columns before joint imputation/standardization.
+
+    knockoff_impute_strategy: str, default="iterative_posterior"
+        Imputation strategy used only by the repaired pre_impute knockoff path.
+
+    n_knockoff_imputations: int, default=1
+        Number of stochastic completions to pool in the repaired pre_impute knockoff path.
 
     random_state: int, default=None
         Seed used by stochastic preprocessing and late fusion.
@@ -460,6 +565,8 @@ def multi_omic_stabl_cv(
                     imputation_strategy,
                     artificial_injection_timing,
                     random_state,
+                    knockoff_impute_strategy=knockoff_impute_strategy,
+                    n_knockoff_imputations=n_knockoff_imputations,
                 )
                 tmp_sel_features = list(stabl.get_feature_names_out())
                 fold_selected_features["STABL Lasso"].extend(tmp_sel_features)
@@ -504,6 +611,8 @@ def multi_omic_stabl_cv(
                     imputation_strategy,
                     artificial_injection_timing,
                     random_state,
+                    knockoff_impute_strategy=knockoff_impute_strategy,
+                    n_knockoff_imputations=n_knockoff_imputations,
                 )
                 tmp_sel_features = list(stabl_alasso.get_feature_names_out())
                 fold_selected_features["STABL ALasso"].extend(tmp_sel_features)
@@ -548,6 +657,8 @@ def multi_omic_stabl_cv(
                     imputation_strategy,
                     artificial_injection_timing,
                     random_state,
+                    knockoff_impute_strategy=knockoff_impute_strategy,
+                    n_knockoff_imputations=n_knockoff_imputations,
                 )
                 tmp_sel_features = list(stabl_en.get_feature_names_out())
                 fold_selected_features["STABL ElasticNet"].extend(tmp_sel_features)
@@ -595,6 +706,8 @@ def multi_omic_stabl_cv(
                         imputation_strategy,
                         artificial_injection_timing,
                         random_state,
+                        knockoff_impute_strategy=knockoff_impute_strategy,
+                        n_knockoff_imputations=n_knockoff_imputations,
                     )
                     tmp_sel_features = list(stabl_sgl_corr.get_feature_names_out())
                     fold_selected_features[f"STABL SGL-{sgl_corr}"].extend(
@@ -1834,9 +1947,7 @@ def late_fusion_cv(
         preds_omics = pd.DataFrame(data=None, columns=predictions.keys())
         for omic_name, preds in predictions.items():
             preds_omics[omic_name] = preds.median(axis=1)
-        model_random_state = (
-            None if random_state is None else random_state + model_idx
-        )
+        model_random_state = None if random_state is None else random_state + model_idx
         stacked_df, weights = stacked_multi_omic(
             preds_omics, y, task_type, n_iter=n_iter, random_state=model_random_state
         )

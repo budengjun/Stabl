@@ -1,45 +1,66 @@
 """
 Direction 1 test bed on Biobank SSI / CyTOF with real missing values.
 
-This version runs only these three STABL models:
+Runs STABL Lasso, STABL ALasso and STABL ElasticNet with MX knockoff decoys.
+The main variable is artificial feature injection timing. For pre_impute, the
+repaired knockoff branch can use stochastic posterior completion and optional
+multiple-imputation pooling.
 
-    STABL Lasso
-    STABL ALasso
-    STABL ElasticNet
-
-The imputer is fixed to SimpleImputer median mode.
-The artificial feature type is fixed to MX knockoffs.
-The only command line variable is the timing of artificial feature injection.
-
-Usage:
-
+Examples:
     python run_cv_SSI_decoy_timing_mx_knockoff.py post_impute
-    python run_cv_SSI_decoy_timing_mx_knockoff.py pre_impute
-
-Expected outputs are saved under:
-
-    ./Results SSI Decoy - <timing>/Training CV/
+    python run_cv_SSI_decoy_timing_mx_knockoff.py pre_impute --n-knockoff-imputations 1 --output-suffix fixed_M1
+    python run_cv_SSI_decoy_timing_mx_knockoff.py pre_impute --n-knockoff-imputations 5 --output-suffix fixed_M5
 """
 
-import sys
-
+import argparse
 
 VALID_TIMINGS = ("post_impute", "pre_impute")
-if len(sys.argv) != 2 or sys.argv[1] not in VALID_TIMINGS:
-    print("Usage: python run_cv_SSI_decoy_timing_mx_knockoff.py [post_impute|pre_impute]")
-    sys.exit(1)
+VALID_KNOCKOFF_IMPUTERS = (
+    "iterative_posterior",
+    "simple",
+    "median",
+    "iterative",
+    "knn",
+)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("timing", choices=VALID_TIMINGS)
+parser.add_argument(
+    "--knockoff-impute-strategy",
+    choices=VALID_KNOCKOFF_IMPUTERS,
+    default="iterative_posterior",
+    help="Imputer used only by the repaired pre_impute knockoff branch.",
+)
+parser.add_argument(
+    "--n-knockoff-imputations",
+    type=int,
+    default=1,
+    help="Number of stochastic completions to pool in the repaired pre_impute knockoff branch.",
+)
+parser.add_argument(
+    "--output-suffix",
+    default="",
+    help="Optional suffix appended to the output folder and log name.",
+)
+args = parser.parse_args()
+
+if args.n_knockoff_imputations < 1:
+    raise ValueError("--n-knockoff-imputations must be >= 1")
 
 
-decoy_timing = sys.argv[1]
+decoy_timing = args.timing
 imputer_mode = "simple"
 artificial_type = "knockoff"
+suffix = f" - {args.output_suffix}" if args.output_suffix else ""
+save_dir = f"./Results SSI Decoy - {decoy_timing}{suffix}"
+log_suffix = f"_{args.output_suffix}" if args.output_suffix else ""
 
 
 from run_notifications import install_run_notifier
 
 install_run_notifier(
-    f"SSI CyTOF decoy timing ({decoy_timing})",
-    log_name=f"ssi_decoy_timing_{decoy_timing}.log",
+    f"SSI CyTOF decoy timing ({decoy_timing}{suffix})",
+    log_name=f"ssi_decoy_timing_{decoy_timing}{log_suffix}.log",
 )
 
 
@@ -47,15 +68,12 @@ import numpy as np
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import RepeatedStratifiedKFold
-
 from stabl import data
 from stabl.adaptive import ALogitLasso
 from stabl.multi_omic_pipelines import multi_omic_stabl_cv
 from stabl.stabl import Stabl
 
-
 random_seed = 1
-
 
 outer_cv = RepeatedStratifiedKFold(
     n_splits=5,
@@ -69,11 +87,9 @@ chosen_inner_cv = RepeatedStratifiedKFold(
     random_state=42,
 )
 
-
 X_train, X_valid, y_train, y_valid, ids, task_type = data.load_ssi(
     "../Sample Data/Biobank SSI"
 )
-
 
 X_cytof = X_train["CyTOF"]
 
@@ -87,11 +103,8 @@ print(f"  missing cells: {int(missing_by_row.sum())}")
 print(f"  samples with missing values: {int((missing_by_row > 0).sum())}")
 print(f"  features with missing values: {int((missing_by_col > 0).sum())}")
 
-
 X_train = {"CyTOF": X_cytof}
 
-
-# Base learner 1: Lasso logistic regression.
 lasso = LogisticRegression(
     penalty="l1",
     class_weight="balanced",
@@ -100,8 +113,6 @@ lasso = LogisticRegression(
     random_state=random_seed,
 )
 
-
-# Base learner 2: Adaptive Lasso logistic regression.
 alasso = ALogitLasso(
     penalty="l1",
     solver="liblinear",
@@ -110,8 +121,6 @@ alasso = ALogitLasso(
     random_state=random_seed,
 )
 
-
-# Base learner 3: Elastic Net logistic regression.
 en = LogisticRegression(
     penalty="elasticnet",
     solver="saga",
@@ -120,8 +129,6 @@ en = LogisticRegression(
     random_state=random_seed,
 )
 
-
-# STABL Lasso.
 stabl_lasso = Stabl(
     lasso,
     n_bootstraps=50,
@@ -135,16 +142,12 @@ stabl_lasso = Stabl(
     verbose=1,
 )
 
-
-# STABL ALasso.
 stabl_alasso = clone(stabl_lasso).set_params(
     base_estimator=alasso,
     lambda_grid={"C": np.linspace(0.01, 10, 6)},
     verbose=1,
 )
 
-
-# STABL ElasticNet.
 stabl_en = clone(stabl_lasso).set_params(
     base_estimator=en,
     lambda_grid=[
@@ -155,13 +158,11 @@ stabl_en = clone(stabl_lasso).set_params(
     verbose=1,
 )
 
-
 estimators = {
     "stabl_lasso": stabl_lasso,
     "stabl_alasso": stabl_alasso,
     "stabl_en": stabl_en,
 }
-
 
 models = [
     "STABL Lasso",
@@ -169,11 +170,12 @@ models = [
     "STABL ElasticNet",
 ]
 
-
 print(
     "Run Direction 1 CV on SSI/CyTOF dataset, "
     f"imputer = {imputer_mode}, artificial type = {artificial_type}, "
     f"decoy timing = {decoy_timing}, "
+    f"knockoff imputer = {args.knockoff_impute_strategy}, "
+    f"M = {args.n_knockoff_imputations}, "
     "models = STABL Lasso, STABL ALasso, STABL ElasticNet"
 )
 
@@ -184,7 +186,7 @@ multi_omic_stabl_cv(
     inner_splitter=chosen_inner_cv,
     estimators=estimators,
     task_type=task_type,
-    save_path=f"./Results SSI Decoy - {decoy_timing}",
+    save_path=save_dir,
     outer_groups=ids,
     early_fusion=False,
     models=models,
@@ -192,5 +194,7 @@ multi_omic_stabl_cv(
     n_iter_lf=1,
     imputation_strategy=imputer_mode,
     artificial_injection_timing=decoy_timing,
+    knockoff_impute_strategy=args.knockoff_impute_strategy,
+    n_knockoff_imputations=args.n_knockoff_imputations,
     random_state=random_seed,
 )
