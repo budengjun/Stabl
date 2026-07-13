@@ -23,7 +23,8 @@ from tqdm.autonotebook import tqdm
 from .unionfind import UnionFind
 import warnings
 
-# Julia runtime is lazy-loaded only when knockoff features are needed.
+# Julia runtime is lazy-loaded only for non-normal knockoff generation.
+# Gaussian MX knockoffs use knockpy and do not require Julia.
 # This avoids spawning a heavyweight Julia process at import time,
 # which can become an orphan process if the Python process crashes.
 
@@ -1281,21 +1282,20 @@ class Stabl(SelectorMixin, BaseEstimator):
                 rng.shuffle(X_artificial[:, i])
 
         elif artificial_type == "knockoff":
-            # Lazy-load Julia runtime only when knockoff features are needed
-            from julia.api import Julia
-
-            Julia(compiled_modules=False)
-            from julia import Distributions as dist
-            from julia import Bigsimr as bs
 
             def generate_noise(X_a):
                 corr = self.corr
                 feat_type = self.feat_type
-                # print(f"\n Generate noise : {feat_type} {corr}\n")
+
                 if feat_type is None or feat_type == "normal":
                     return GaussianSampler(
                         np.array(X_a), method="equicorrelated"
                     ).sample_knockoffs()
+
+                from julia.api import Julia
+                Julia(compiled_modules=False)
+                from julia import Distributions as dist
+                from julia import Bigsimr as bs
 
                 X_b = pd.read_csv(f"./Norta/normal {corr}.csv", index_col=0).loc[
                     X_a.index, X_a.columns

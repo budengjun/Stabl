@@ -10,6 +10,7 @@ Examples:
     python run_cv_SSI_decoy_timing_mx_knockoff.py post_impute
     python run_cv_SSI_decoy_timing_mx_knockoff.py pre_impute --n-knockoff-imputations 1 --output-suffix fixed_M1
     python run_cv_SSI_decoy_timing_mx_knockoff.py pre_impute --n-knockoff-imputations 5 --output-suffix fixed_M5
+    python run_cv_SSI_decoy_timing_mx_knockoff.py pre_impute --knockoff-impute-strategy median --knockoff-remask --output-suffix remask_median
 """
 
 import argparse
@@ -36,6 +37,15 @@ parser.add_argument(
     type=int,
     default=1,
     help="Number of stochastic completions to pool in the repaired pre_impute knockoff branch.",
+)
+parser.add_argument(
+    "--knockoff-remask",
+    action="store_true",
+    help=(
+        "pre_impute knockoff branch only. Copy the paired real-feature missingness "
+        "pattern onto the generated knockoffs, impute the knockoff block a second "
+        "time, then re-standardize real and knockoff blocks jointly."
+    ),
 )
 parser.add_argument(
     "--output-suffix",
@@ -176,6 +186,7 @@ print(
     f"decoy timing = {decoy_timing}, "
     f"knockoff imputer = {args.knockoff_impute_strategy}, "
     f"M = {args.n_knockoff_imputations}, "
+    f"knockoff remask = {args.knockoff_remask}, "
     "models = STABL Lasso, STABL ALasso, STABL ElasticNet"
 )
 
@@ -196,5 +207,6 @@ multi_omic_stabl_cv(
     artificial_injection_timing=decoy_timing,
     knockoff_impute_strategy=args.knockoff_impute_strategy,
     n_knockoff_imputations=args.n_knockoff_imputations,
+    knockoff_remask=args.knockoff_remask,
     random_state=random_seed,
 )
