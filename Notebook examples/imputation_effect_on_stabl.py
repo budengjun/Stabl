@@ -9,37 +9,68 @@ across conditions to assess whether the imputation strategy materially affects
 STABL. Multi-omic setup mirrors run_cv_OOL_CyPrMe (STABL is fit per omic, then
 the features selected across omics are concatenated for the final model).
 
-For experimental design, metrics, and methodological trade-offs, see:
-    Imputation_Effect_on_STABL_Proposal.docx
+Differences vs the previous version, all aimed at making the run actually finish:
 
-Fixed by decision (edit Config, not CLI): environment paths (following the
-run_cv_SSI_imputer_compare_full convention), dataset = Onset of Labor, the three
-omics, MX (Model-X) knockoff, and the full OOL compute config
-(n_splits=100, n_bootstraps=300). The CLI exposes only the two experimental axes
-actually varied run-to-run (mechanism, missing rate).
+  1. Knockoffs are generated ONCE per (fold, omic) and reused across the three
+     base learners via Stabl.fit(..., X_artificial=...). Knockoff generation is
+     deterministic given random_state, so this is numerically identical to the
+     old behaviour, just 3x cheaper.
+  2. IterativeImputer-based imputers (iterative / rf / missforest) now use
+     n_nearest_features and skip_complete. Without this, one fold of
+     Metabolomics (3529 columns, every column missing under MCAR 0.2) costs
+     ~36 h for BayesianRidge and ~55 h for RandomForest, per fold, per omic.
+  3. Progress is logged for every fold with a running ETA, and per omic at
+     DEBUG level. The old code only logged every n_splits // 10 folds, which
+     meant hours of complete silence.
+  4. BLAS threads are pinned to 1 so they do not fight with joblib workers.
+  5. Results are checkpointed after every condition, and a run can resume from
+     an interrupted state (--no-resume to disable).
+  6. --smoke runs a tiny end-to-end configuration in a few minutes, which is
+     what you should run first after any edit.
+  7. Per-fold metrics and the raw per-fold predictions are saved, so conditions
+     can be compared with paired tests offline (see paired_tests.py). All
+     conditions share the same CV splits (random_state), so they are paired at
+     the sample level.
+  8. The cache directory name carries an MD5 fingerprint of every config field
+     that affects results. Change n_splits or n_bootstraps and the old cache is
+     simply not found, instead of being silently reused.
 
 Usage
-    python imputation_effect_on_stabl.py --mechanism MNAR --missing-rate 0.2
+    python imputation_effect_on_stabl.py --smoke
+    python imputation_effect_on_stabl.py --mechanism MCAR --missing-rate 0.2
+    python imputation_effect_on_stabl.py --mechanism MNAR --missing-rate 0.3 \
+        --n-splits 25 --n-bootstraps 100 --imputers simple knn iterative
 
-Runtime logging and ntfy start/finish/fail push are handled by run_notifications.
 Outputs: metrics_long.csv, feature_recovery.csv, diagnostics.csv,
-imputation_effect_figure.png.
+fold_metrics.csv, predictions.csv.gz, imputation_effect_figure.png, plus a
+_cache_<fingerprint>/ directory used for resume.
 """
 
-
+# Thread pinning must happen before numpy / sklearn import their BLAS backend.
+# Stabl uses joblib with n_jobs=-1; if BLAS is also multi-threaded, the workers
+# oversubscribe every core and the run appears to hang while burning 100% CPU.
 import os
+
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+           "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_v, "1")
+
 import sys
+import json
 import time
+import pickle
+import hashlib
 import argparse
 import logging
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from itertools import combinations
 from collections import Counter
 
 import numpy as np
 import pandas as pd
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -54,14 +85,13 @@ from sklearn.model_selection import GroupShuffleSplit
 from sklearn.metrics import r2_score, mean_absolute_error
 from sklearn.base import clone
 
-# Julia is initialized before importing stabl, matching
-# run_cv_SSI_imputer_compare_full, where knockoff generation goes through the
-# Julia/Bigsimr backend. Guarded so environments without Julia still import;
-# knockoff will then fail at fit time if the backend truly needs it.
+# Julia is only needed for non-Gaussian knockoff margins (feat_type != None).
+# Gaussian MX knockoffs go through knockpy and do not need it. Kept guarded.
 try:
     from julia.api import Julia
+
     _JL = Julia(compiled_modules=False)
-except Exception as _jl_err:  # noqa: F841
+except Exception:  # noqa: BLE001
     _JL = None
 
 from stabl.stabl import Stabl
@@ -70,54 +100,69 @@ from stabl.preprocessing import LowInfoFilter
 
 warnings.filterwarnings("ignore")
 
+_NOTIFIER = None  # set in main(), used by notify()
+
 
 # ====================================================================
 # 0. Configuration
 # ====================================================================
 @dataclass
 class Config:
-    # Environment paths, matching run_cv_SSI_imputer_compare_full: the script
-    # runs from a subdir (e.g. "Notebook examples"), so Sample Data is one level
-    # up; stabl is installed/importable, so there is no repo-path concept;
-    # outputs follow the "./Results ..." convention.
     data_path: str = "../Sample Data"
     out_dir: str = "./Results OOL CyPrMe imputer compare"
 
-    # Dataset and omics. Fixed: Onset of Labor, three omics (like run_cv_OOL_CyPrMe).
     dataset: str = "Onset of Labor"
     omics: tuple = ("CyTOF", "Proteomics", "Metabolomics")
     task_type: str = "regression"
 
-    # masking (CLI: mechanism, missing_rate)
+    # Masking
     mechanism: str = "MCAR"          # MCAR / MAR / MNAR
     missing_rate: float = 0.20
     n_mask_repeats: int = 3
 
-    # imputers to compare
     imputers: tuple = ("simple", "knn", "iterative", "rf", "missforest")
 
-    # Fold-safe imputation (recommended). True would leak test info via a global imputer.
+    # Fold-safe imputation. True would leak test information via a global imputer.
     global_impute: bool = False
 
-    # STABL. Fixed to the full OOL config from run_cv_OOL_CyPrMe.
-    # "knockoff" = second-order Model-X (Gaussian, equicorrelated) knockoff = MX knockoff.
-    artificial_type: str = "knockoff"
-    n_bootstraps: int = 300
+    # Optional unsupervised feature pre-screen, applied to the complete data
+    # before masking and identically to every condition. None keeps all features.
+    # Metabolomics (3529 columns) drives the O(p^3) knockoff cost; capping it at
+    # ~1500 roughly halves total runtime. Variance-based, so it never touches y.
+    max_features_per_omic: int = None
+
+    # STABL
+    artificial_type: str = "knockoff"   # second-order Model-X (Gaussian, equicorrelated)
+    n_bootstraps: int = 100
     sample_fraction: float = 0.5
     fdr_low: float = 0.1
     fdr_high: float = 1.0
 
-    # Outer CV. Fixed to OOL full: 100 splits, 20% test.
-    n_splits: int = 100
+    # Outer CV. 100 splits x 300 bootstraps is a final-run config, not something
+    # you want to pay 16 times over (1 Real + 5 imputers x 3 repeats).
+    n_splits: int = 25
     test_size: float = 0.2
     random_state: int = 42
 
     base_learners: tuple = ("Lasso", "ALasso", "ElasticNet")
     seed: int = 42
 
+    # Parallelism handed to Stabl's bootstrap loop.
+    n_jobs: int = -1
+
+    # IterativeImputer cost controls. n_nearest_features is the single most
+    # important knob: it caps the predictor count per imputed column.
+    iter_n_nearest: int = 30
+    iter_max_iter: int = 3
+    rf_n_estimators: int = 20
+    rf_max_depth: int = 8
+    rf_max_iter: int = 2
+
+    resume: bool = True
+
 
 # ====================================================================
-# 1. Logging + ntfy notifications
+# 1. Logging + notifications
 # ====================================================================
 def setup_logging():
     logger = logging.getLogger()
@@ -130,22 +175,39 @@ def setup_logging():
     logger.addHandler(sh)
 
 
-def notify(cfg: Config, title: str, message: str,
-           priority: str = "default", tags: str = ""):
-    """Log progress. ntfy start/finish/fail events are handled by run_notifications."""
+def notify(cfg, title, message, priority="default", tags=""):
+    """Log always; push to ntfy when the run notifier is installed."""
     logging.info(f"[notify] {title} | {message}")
+    if _NOTIFIER is not None:
+        try:
+            _NOTIFIER.send(title=title, message=message,
+                           priority=priority, tags=tags)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _fmt_dur(seconds):
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h{m:02d}m"
+    if m:
+        return f"{m}m{s:02d}s"
+    return f"{s}s"
 
 
 # ====================================================================
-# 2. Data loading: complete 3-omic dict + y + groups
+# 2. Data loading
 # ====================================================================
 def load_complete_omics(cfg: Config):
     """
-    Load the OOL training omics as a dict {omic: DataFrame}. Each omic is
-    complete-cased (NaN columns dropped) so that Real is a true ground truth.
-    All omics share the same sample index, aligned to y and groups.
+    Load the OOL training omics as {omic: DataFrame}. Each omic is complete-cased
+    (NaN columns dropped) so that Real is a true ground truth. All omics share the
+    same sample index, aligned to y and groups.
     """
     from os.path import join
+
     base = join(cfg.data_path, cfg.dataset, "Training")
 
     y = pd.read_csv(join(base, "DOS.csv"), index_col=0).iloc[:, 0]
@@ -154,7 +216,6 @@ def load_complete_omics(cfg: Config):
     raw = {omic: pd.read_csv(join(base, f"{omic}.csv"), index_col=0)
            for omic in cfg.omics}
 
-    # Common sample index across all omics and y
     common = y.index
     for omic, X in raw.items():
         common = common.intersection(X.index)
@@ -167,7 +228,17 @@ def load_complete_omics(cfg: Config):
         X = X.dropna(axis=1, how="any")
         dropped = n_before - X.shape[1]
         assert not X.isna().any().any(), f"{omic} still contains NaN"
-        data_dict[omic] = X.astype(float)
+        X = X.astype(float)
+
+        if cfg.max_features_per_omic and X.shape[1] > cfg.max_features_per_omic:
+            keep = (X.var(axis=0)
+                     .sort_values(ascending=False)
+                     .index[:cfg.max_features_per_omic])
+            X = X[sorted(keep, key=list(X.columns).index)]
+            logging.info(f"[data] {omic}: pre-screened to top "
+                         f"{cfg.max_features_per_omic} features by variance")
+
+        data_dict[omic] = X
         logging.info(f"[data] {omic}: {X.shape[0]} samples x {X.shape[1]} features "
                      f"(dropped {dropped} NaN columns)")
 
@@ -177,7 +248,7 @@ def load_complete_omics(cfg: Config):
 
 
 # ====================================================================
-# 3. Masking: MCAR / MAR / MNAR (applied per omic)
+# 3. Masking
 # ====================================================================
 def make_mask(X, y, mechanism, rate, rng):
     n, p = X.shape
@@ -225,59 +296,97 @@ def apply_mask(X, mask):
 
 
 def mask_data_dict(data_dict, y, mechanism, rate, rng):
-    """Mask every omic independently with the same mechanism and rate."""
     out = {}
-    total_target, total_realized, total_cells = 0, 0, 0
+    total_realized, total_cells = 0, 0
     for omic, X in data_dict.items():
         m = make_mask(X, y, mechanism, rate, rng)
         out[omic] = apply_mask(X, m)
         total_realized += m.sum()
         total_cells += m.size
     logging.info(f"[mask] mechanism={mechanism} target={rate:.2f} "
-                 f"overall realized={total_realized/total_cells:.3f}")
+                 f"overall realized={total_realized / total_cells:.3f}")
     return out
 
 
 # ====================================================================
 # 4. Imputer registry
 # ====================================================================
-def build_imputer_factory(name, seed):
+def _kw_keep_empty():
+    """keep_empty_features exists from sklearn 1.2. Without it, a column that is
+    all-NaN inside one training fold gets dropped, so the feature set silently
+    changes between folds."""
+    try:
+        SimpleImputer(keep_empty_features=True)
+        return {"keep_empty_features": True}
+    except TypeError:
+        return {}
+
+
+def build_imputer_factory(name, cfg: Config):
     name = name.lower()
+    seed = cfg.seed
+    ke = _kw_keep_empty()
+
     if name == "simple":
-        return lambda: SimpleImputer(strategy="median")
+        return lambda: SimpleImputer(strategy="median", **ke)
+
     if name == "knn":
-        return lambda: KNNImputer(n_neighbors=5, weights="distance")
+        return lambda: KNNImputer(n_neighbors=5, weights="distance", **ke)
+
     if name == "iterative":
-        return lambda: IterativeImputer(estimator=BayesianRidge(), max_iter=10,
-                                        sample_posterior=False, random_state=seed)
+        return lambda: IterativeImputer(
+            estimator=BayesianRidge(),
+            max_iter=cfg.iter_max_iter,
+            n_nearest_features=cfg.iter_n_nearest,
+            skip_complete=True,
+            sample_posterior=False,
+            random_state=seed,
+            **ke,
+        )
+
     if name == "rf":
         return lambda: IterativeImputer(
-            estimator=RandomForestRegressor(n_estimators=100, n_jobs=-1,
-                                            random_state=seed),
-            max_iter=5, random_state=seed)
+            estimator=RandomForestRegressor(
+                n_estimators=cfg.rf_n_estimators,
+                max_depth=cfg.rf_max_depth,
+                n_jobs=1,          # never nest joblib inside joblib
+                random_state=seed,
+            ),
+            max_iter=cfg.rf_max_iter,
+            n_nearest_features=cfg.iter_n_nearest,
+            skip_complete=True,
+            random_state=seed,
+            **ke,
+        )
+
     if name == "missforest":
         try:
-            import miceforest  # noqa
+            import miceforest  # noqa: F401
+
             return lambda: _MiceForestWrapper(seed=seed)
-        except Exception:
-            logging.warning("[imputer] miceforest was not detected; missforest falls back "
-                            "to rf (IterativeImputer+RF). For real missForest, "
+        except Exception:  # noqa: BLE001
+            logging.warning("[imputer] miceforest not detected; missforest falls back "
+                            "to rf (IterativeImputer + RF). For real missForest: "
                             "pip install miceforest")
-            return build_imputer_factory("rf", seed)
+            return build_imputer_factory("rf", cfg)
+
     raise ValueError(f"Unknown imputer: {name}")
 
 
 class _MiceForestWrapper:
-    def __init__(self, seed=42, iterations=3):
+    def __init__(self, seed=42, iterations=2):
         self.seed = seed
         self.iterations = iterations
         self.kernel_ = None
         self.columns_ = None
+        self.n_features_in_ = None
 
     def fit(self, X, y=None):
         import miceforest as mf
+
         Xdf = pd.DataFrame(X).copy()
         self.columns_ = Xdf.columns
+        self.n_features_in_ = Xdf.shape[1]
         self.kernel_ = mf.ImputationKernel(Xdf, num_datasets=1,
                                            random_state=self.seed)
         self.kernel_.mice(self.iterations)
@@ -286,28 +395,39 @@ class _MiceForestWrapper:
     def transform(self, X):
         Xdf = pd.DataFrame(X, columns=self.columns_).copy()
         completed = self.kernel_.impute_new_data(Xdf).complete_data(0)
-        return np.asarray(completed, dtype=float)
+        out = np.asarray(completed, dtype=float)
+        return np.nan_to_num(out, nan=0.0)
 
     def fit_transform(self, X, y=None):
         return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features=None):
+        return np.asarray(input_features, dtype=object)
 
 
 # ====================================================================
 # 5. STABL components
 # ====================================================================
-def build_stabl_estimators(cfg):
+def build_stabl_estimators(cfg: Config):
     fdr_range = np.arange(cfg.fdr_low, cfg.fdr_high, 0.01)
     lasso = Lasso(max_iter=int(1e6), random_state=cfg.random_state)
     alasso = ALasso(max_iter=int(1e6), random_state=cfg.random_state)
     en = ElasticNet(max_iter=int(1e6), random_state=cfg.random_state)
 
     base = Stabl(
-        base_estimator=lasso, n_bootstraps=cfg.n_bootstraps,
-        artificial_type=cfg.artificial_type, artificial_proportion=1.0,
-        replace=False, fdr_threshold_range=fdr_range,
-        sample_fraction=cfg.sample_fraction, random_state=cfg.random_state,
-        lambda_grid={"alpha": np.logspace(0, 2, 10)}, verbose=0,
+        base_estimator=lasso,
+        n_bootstraps=cfg.n_bootstraps,
+        artificial_type=cfg.artificial_type,
+        artificial_proportion=1.0,
+        replace=False,
+        fdr_threshold_range=fdr_range,
+        sample_fraction=cfg.sample_fraction,
+        random_state=cfg.random_state,
+        lambda_grid={"alpha": np.logspace(0, 2, 10)},
+        n_jobs=cfg.n_jobs,
+        verbose=0,
     )
+
     est = {}
     if "Lasso" in cfg.base_learners:
         est["STABL Lasso"] = clone(base).set_params(
@@ -322,21 +442,41 @@ def build_stabl_estimators(cfg):
     return est
 
 
-def build_preprocessor(cfg, imputer_factory):
+def build_preprocessor(cfg: Config, imputer_factory):
     steps = [
         ("variance", VarianceThreshold(0.01)),
         ("lif", LowInfoFilter(max_nan_fraction=1.0)),
         ("impute", imputer_factory() if imputer_factory is not None
-         else SimpleImputer(strategy="median")),
+         else SimpleImputer(strategy="median", **_kw_keep_empty())),
         ("std", StandardScaler()),
     ]
     return Pipeline(steps)
 
 
+def make_knockoffs(cfg: Config, Xtr, proto):
+    """
+    Generate the artificial (knockoff) block once for a given (fold, omic).
+
+    Stabl._make_artificial_features is deterministic given random_state, so the
+    three base learners were previously each generating the identical matrix.
+    We generate it once and pass it in via Stabl.fit(X_artificial=...).
+    """
+    if cfg.artificial_type is None:
+        return None
+    s = clone(proto)
+    s._make_artificial_features(
+        X=Xtr,
+        artificial_type=cfg.artificial_type,
+        nb_noise=int(Xtr.shape[1] * 1.0),
+        random_state=cfg.random_state,
+    )
+    return np.asarray(s.X_artificial_)
+
+
 # ====================================================================
 # 6. CV for one condition (multi-omic)
 # ====================================================================
-def run_condition(name, data_dict, y, groups, cfg, imputer_factory=None):
+def run_condition(name, data_dict, y, groups, cfg: Config, imputer_factory=None):
     """
     Multi-omic CV mirroring multi_omic_stabl_cv: per fold, STABL is fit on each
     omic separately; features selected across omics are concatenated for the
@@ -348,32 +488,51 @@ def run_condition(name, data_dict, y, groups, cfg, imputer_factory=None):
     cv = GroupShuffleSplit(n_splits=cfg.n_splits, test_size=cfg.test_size,
                            random_state=cfg.random_state)
 
-    preds = {m: pd.DataFrame(index=y.index) for m in estimators}
+    preds = {m: pd.DataFrame(index=y.index, columns=[f"fold{k}" for k in range(cfg.n_splits)],
+                             dtype=float) for m in estimators}
     nfeat = {m: [] for m in estimators}
     fold_feats = {m: [] for m in estimators}
 
+    t_start = time.time()
+
     for k, (tr, te) in enumerate(cv.split(y, y, groups=groups)):
+        t_fold = time.time()
         tr_idx, te_idx = y.index[tr], y.index[te]
         g_tr = groups.loc[tr_idx].values
         ytr = y.loc[tr_idx]
 
-        # Per-omic standardized train/test frames (original column names kept).
         std_frames = {}
         sel = {m: [] for m in estimators}   # list of (omic, feature)
+
         for omic, X in data_dict.items():
+            t_omic = time.time()
+
             pre = build_preprocessor(cfg, imputer_factory)
             Xtr = pd.DataFrame(pre.fit_transform(X.loc[tr_idx]),
                                index=tr_idx, columns=pre.get_feature_names_out())
             Xte = pd.DataFrame(pre.transform(X.loc[te_idx]),
                                index=te_idx, columns=pre.get_feature_names_out())
             std_frames[omic] = (Xtr, Xte)
+            t_pre = time.time() - t_omic
+
+            # One knockoff block, shared by all base learners.
+            t0 = time.time()
+            proto = next(iter(estimators.values()))
+            X_art = make_knockoffs(cfg, Xtr, proto)
+            t_ko = time.time() - t0
+
+            t0 = time.time()
             for m, stabl in estimators.items():
                 s = clone(stabl)
-                s.fit(Xtr, ytr, groups=g_tr)
+                s.fit(Xtr, ytr, groups=g_tr, X_artificial=X_art)
                 for f in s.get_feature_names_out():
                     sel[m].append((omic, f))
+            t_fit = time.time() - t0
 
-        # Final model on features concatenated across omics.
+            logging.debug(
+                f"    [{name}] fold {k + 1} | {omic} p={Xtr.shape[1]} | "
+                f"pre {t_pre:.1f}s knockoff {t_ko:.1f}s stabl {t_fit:.1f}s")
+
         for m in estimators:
             nfeat[m].append(len(sel[m]))
             fold_feats[m].append([f"{omic}::{f}" for (omic, f) in sel[m]])
@@ -389,8 +548,13 @@ def run_condition(name, data_dict, y, groups, cfg, imputer_factory=None):
             else:
                 preds[m].loc[te_idx, f"fold{k}"] = float(np.mean(ytr))
 
-        if (k + 1) % max(1, cfg.n_splits // 10) == 0:
-            logging.info(f"    [{name}] fold {k+1}/{cfg.n_splits} done")
+        # Every fold, with an ETA. Silence is what made this look hung.
+        dt = time.time() - t_fold
+        done = k + 1
+        eta = (time.time() - t_start) / done * (cfg.n_splits - done)
+        nf = {m.replace("STABL ", ""): nfeat[m][-1] for m in estimators}
+        logging.info(f"    [{name}] fold {done}/{cfg.n_splits} done in {_fmt_dur(dt)} "
+                     f"| n_features {nf} | ETA {_fmt_dur(eta)}")
 
     out = {}
     for m in estimators:
@@ -398,13 +562,35 @@ def run_condition(name, data_dict, y, groups, cfg, imputer_factory=None):
         valid = yhat.notna()
         r2 = r2_score(y[valid], yhat[valid]) if valid.sum() > 1 else np.nan
         mae = mean_absolute_error(y[valid], yhat[valid]) if valid.sum() > 1 else np.nan
+
+        # Per-fold metrics. NOTE: GroupShuffleSplit draws n_splits independent
+        # test sets, so a sample appears in several of them and the folds are
+        # NOT independent. Do not run an n=n_splits paired test on these. Use
+        # the sample-level pairing in paired_tests.py instead, which is what
+        # `preds` below is saved for.
+        fm = []
+        for k in range(cfg.n_splits):
+            col = preds[m][f"fold{k}"]
+            te = col.notna()
+            if te.sum() > 1:
+                fm.append(dict(
+                    fold=k,
+                    n_test=int(te.sum()),
+                    r2=r2_score(y[te], col[te]),
+                    mae=mean_absolute_error(y[te], col[te]),
+                    n_features=nfeat[m][k],
+                ))
+
         out[m] = {
-            "r2": r2, "mae": mae,
+            "r2": r2,
+            "mae": mae,
             "n_features_mean": float(np.mean(nfeat[m])),
             "n_features_std": float(np.std(nfeat[m])),
             "jaccard_stability": jaccard_stability(fold_feats[m]),
             "floor_effect_flag": float(np.mean(nfeat[m])) < 1.0,
             "fold_feats": fold_feats[m],
+            "fold_metrics": fm,
+            "preds": preds[m],            # n_samples x n_splits, NaN off-fold
         }
     return out
 
@@ -441,66 +627,199 @@ def feature_recovery(feats_cond, feats_real, min_fold_frac=0.5):
 
 
 # ====================================================================
-# 7. Orchestration
+# 7. Checkpointing / resume
 # ====================================================================
-def run_experiment(cfg):
+# Every field here changes the numbers. n_jobs and out_dir deliberately do not
+# appear: they affect speed and file layout, not results, and including them
+# would force a full recompute every time the core count changes.
+_FINGERPRINT_KEYS = (
+    "omics", "mechanism", "missing_rate", "max_features_per_omic",
+    "artificial_type", "n_bootstraps", "sample_fraction",
+    "fdr_low", "fdr_high", "n_splits", "test_size", "random_state",
+    "base_learners", "seed", "global_impute",
+    "iter_n_nearest", "iter_max_iter",
+    "rf_n_estimators", "rf_max_depth", "rf_max_iter",
+)
+
+
+def cfg_fingerprint(cfg: Config):
+    blob = "|".join(f"{k}={getattr(cfg, k)!r}" for k in _FINGERPRINT_KEYS)
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()[:8]
+
+
+def _cache_dir(cfg: Config):
+    """Cache directory is namespaced by a fingerprint of the result-affecting
+    config. Without it, bumping n_splits from 25 to 100 and rerunning with
+    resume=True would silently load the 25-split results and report them as
+    100-split ones, with no warning anywhere."""
+    d = os.path.join(cfg.out_dir, f"_cache_{cfg_fingerprint(cfg)}")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _cache_path(cfg: Config, key):
+    safe = key.replace("/", "_").replace(" ", "_")
+    return os.path.join(_cache_dir(cfg), f"{safe}.pkl")
+
+
+def load_cached(cfg: Config, key):
+    p = _cache_path(cfg, key)
+    if cfg.resume and os.path.exists(p):
+        try:
+            with open(p, "rb") as f:
+                res = pickle.load(f)
+            logging.info(f"[resume] loaded cached condition '{key}'")
+            return res
+        except Exception:  # noqa: BLE001
+            logging.warning(f"[resume] cache for '{key}' is unreadable, recomputing")
+    return None
+
+
+def save_cached(cfg: Config, key, res):
+    with open(_cache_path(cfg, key), "wb") as f:
+        pickle.dump(res, f)
+
+
+# ====================================================================
+# 8. Orchestration
+# ====================================================================
+def run_experiment(cfg: Config):
     os.makedirs(cfg.out_dir, exist_ok=True)
+    payload = {k: (list(v) if isinstance(v, tuple) else v)
+               for k, v in cfg.__dict__.items()}
+    payload["cache_fingerprint"] = cfg_fingerprint(cfg)
+    with open(os.path.join(cfg.out_dir, "config.json"), "w") as f:
+        json.dump(payload, f, indent=2)
+
     t0 = time.time()
+    n_conditions = 1 + len(cfg.imputers) * cfg.n_mask_repeats
+    fp = cfg_fingerprint(cfg)
+    logging.info(f"[cache] fingerprint={fp} dir={_cache_dir(cfg)}")
     notify(cfg, "STABL imputation run started",
            f"dataset={cfg.dataset} omics={list(cfg.omics)} "
            f"mechanism={cfg.mechanism} rate={cfg.missing_rate} "
-           f"imputers={list(cfg.imputers)} fold_safe={not cfg.global_impute}",
+           f"imputers={list(cfg.imputers)} fold_safe={not cfg.global_impute} "
+           f"n_splits={cfg.n_splits} n_bootstraps={cfg.n_bootstraps} "
+           f"conditions={n_conditions} fingerprint={fp}",
            tags="rocket")
 
     data_dict, y, groups = load_complete_omics(cfg)
 
-    logging.info("=== Condition: Real (complete benchmark) ===")
-    real = run_condition("Real", data_dict, y, groups, cfg, imputer_factory=None)
-    notify(cfg, "STABL run progress", "Real condition completed", tags="white_check_mark")
+    rows, recov_rows, fold_rows, pred_frames = [], [], [], []
 
-    rows, recov_rows = [], []
-    for m, r in real.items():
-        rows.append(dict(condition="Real", imputer="Real", base_learner=m,
-                         mask_repeat=-1,
-                         **{k: v for k, v in r.items() if k != "fold_feats"}))
+    # Caches written before fold_metrics/preds existed simply lack those keys.
+    # Degrade gracefully rather than invalidating them: a 15 h rerun is not
+    # worth it, and the aggregate metrics in those caches are still correct.
+    _MISSING = {"warned": False}
 
+    def collect(cond, imp, rep, res):
+        for m, r in res.items():
+            rows.append(dict(condition=cond, imputer=imp, base_learner=m,
+                             mask_repeat=rep,
+                             **{k: v for k, v in r.items()
+                                if k not in ("fold_feats", "fold_metrics", "preds")}))
+
+            fm = r.get("fold_metrics")
+            pr = r.get("preds")
+            if fm is None or pr is None:
+                if not _MISSING["warned"]:
+                    logging.warning(
+                        "[cache] some cached conditions predate per-fold logging; "
+                        "fold_metrics.csv and predictions.csv.gz will cover only "
+                        "the conditions that have it. Rerun with --no-resume to "
+                        "regenerate everything.")
+                    _MISSING["warned"] = True
+                continue
+
+            for row in fm:
+                fold_rows.append(dict(condition=cond, imputer=imp,
+                                      base_learner=m, mask_repeat=rep, **row))
+
+            # Only the test rows of each fold are populated; the rest is NaN.
+            # melt + dropna keeps the file to the ~n_splits * n_test rows that
+            # actually carry a prediction. (stack()'s NaN handling varies by
+            # pandas version, so do not rely on it.)
+            df = (pr.rename_axis("sample")
+                    .reset_index()
+                    .melt(id_vars="sample", var_name="fold", value_name="yhat")
+                    .dropna(subset=["yhat"]))
+            df.insert(0, "mask_repeat", rep)
+            df.insert(0, "base_learner", m)
+            df.insert(0, "condition", cond)
+            pred_frames.append(df)
+
+    def flush():
+        pd.DataFrame(rows).to_csv(
+            os.path.join(cfg.out_dir, "metrics_long.csv"), index=False)
+        if recov_rows:
+            pd.DataFrame(recov_rows).to_csv(
+                os.path.join(cfg.out_dir, "feature_recovery.csv"), index=False)
+        if fold_rows:
+            pd.DataFrame(fold_rows).to_csv(
+                os.path.join(cfg.out_dir, "fold_metrics.csv"), index=False)
+        if pred_frames:
+            pd.concat(pred_frames, ignore_index=True).to_csv(
+                os.path.join(cfg.out_dir, "predictions.csv.gz"),
+                index=False, compression="gzip")
+
+    # ---- Real ----
+    logging.info("=== Condition 1/%d: Real (complete benchmark) ===" % n_conditions)
+    real = load_cached(cfg, "Real")
+    if real is None:
+        real = run_condition("Real", data_dict, y, groups, cfg, imputer_factory=None)
+        save_cached(cfg, "Real", real)
+    notify(cfg, "STABL run progress", "Real condition completed",
+           tags="white_check_mark")
+
+    collect("Real", "Real", -1, real)
+
+    # ---- Imputed conditions ----
+    ci = 1
     for imp_name in cfg.imputers:
-        factory = build_imputer_factory(imp_name, cfg.seed)
+        factory = build_imputer_factory(imp_name, cfg)
         for rep in range(cfg.n_mask_repeats):
-            logging.info(f"=== Condition: {imp_name} | mask repeat "
-                         f"{rep+1}/{cfg.n_mask_repeats} ===")
-            rng = np.random.RandomState(cfg.seed + 1000 * rep)
-            masked = mask_data_dict(data_dict, y, cfg.mechanism,
-                                    cfg.missing_rate, rng)
+            ci += 1
+            key = f"{imp_name}_rep{rep}"
+            logging.info(f"=== Condition {ci}/{n_conditions}: {imp_name} | "
+                         f"mask repeat {rep + 1}/{cfg.n_mask_repeats} ===")
 
-            if cfg.global_impute:
-                filled = {}
-                for omic, Xm in masked.items():
-                    imp = factory()
-                    filled[omic] = pd.DataFrame(imp.fit_transform(Xm.values),
-                                                index=Xm.index, columns=Xm.columns)
-                res = run_condition(imp_name, filled, y, groups, cfg,
-                                    imputer_factory=None)
-            else:
-                res = run_condition(imp_name, masked, y, groups, cfg,
-                                    imputer_factory=factory)
+            res = load_cached(cfg, key)
+            if res is None:
+                rng = np.random.RandomState(cfg.seed + 1000 * rep)
+                masked = mask_data_dict(data_dict, y, cfg.mechanism,
+                                        cfg.missing_rate, rng)
 
+                if cfg.global_impute:
+                    filled = {}
+                    for omic, Xm in masked.items():
+                        imp = factory()
+                        filled[omic] = pd.DataFrame(imp.fit_transform(Xm.values),
+                                                    index=Xm.index,
+                                                    columns=Xm.columns)
+                    res = run_condition(imp_name, filled, y, groups, cfg,
+                                        imputer_factory=None)
+                else:
+                    res = run_condition(imp_name, masked, y, groups, cfg,
+                                        imputer_factory=factory)
+                save_cached(cfg, key, res)
+
+            collect(imp_name, imp_name, rep, res)
             for m, r in res.items():
-                rows.append(dict(condition=imp_name, imputer=imp_name,
-                                 base_learner=m, mask_repeat=rep,
-                                 **{k: v for k, v in r.items()
-                                    if k != "fold_feats"}))
                 rec = feature_recovery(r["fold_feats"], real[m]["fold_feats"])
                 recov_rows.append(dict(imputer=imp_name, base_learner=m,
                                        mask_repeat=rep, **rec))
+
+            # Checkpoint after every condition so a crash never costs more than one.
+            flush()
+
             notify(cfg, "STABL run progress",
-                   f"{imp_name} repeat {rep+1}/{cfg.n_mask_repeats} completed",
+                   f"{imp_name} repeat {rep + 1}/{cfg.n_mask_repeats} completed "
+                   f"({ci}/{n_conditions}); elapsed {_fmt_dur(time.time() - t0)}",
                    tags="white_check_mark")
 
+    flush()
     df = pd.DataFrame(rows)
     df_rec = pd.DataFrame(recov_rows)
-    df.to_csv(os.path.join(cfg.out_dir, "metrics_long.csv"), index=False)
-    df_rec.to_csv(os.path.join(cfg.out_dir, "feature_recovery.csv"), index=False)
 
     diag = (df.groupby(["condition", "base_learner"])
               .agg(r2=("r2", "mean"), mae=("mae", "mean"),
@@ -516,16 +835,16 @@ def run_experiment(cfg):
 
     dt = time.time() - t0
     notify(cfg, "STABL imputation run finished",
-           f"Elapsed {dt/60:.1f} minutes; results in {cfg.out_dir}",
+           f"Elapsed {_fmt_dur(dt)}; results in {cfg.out_dir}",
            priority="high", tags="tada")
-    logging.info(f"Finished in {dt/60:.1f} minutes. Results saved to {cfg.out_dir}")
+    logging.info(f"Finished in {_fmt_dur(dt)}. Results saved to {cfg.out_dir}")
     return df, df_rec, diag
 
 
 # ====================================================================
-# 8. Plotting
+# 9. Plotting
 # ====================================================================
-def make_figure(df, df_rec, cfg):
+def make_figure(df, df_rec, cfg: Config):
     conditions = ["Real"] + list(cfg.imputers)
     base_learners = [f"STABL {b}" for b in cfg.base_learners]
     colors = {"STABL Lasso": "#E8873A", "STABL ALasso": "#2E6FB7",
@@ -594,17 +913,33 @@ def make_figure(df, df_rec, cfg):
 
 
 # ====================================================================
-# 9. CLI
+# 10. CLI
 # ====================================================================
 def parse_args():
-    # CLI = only the two experimental axes varied run-to-run. Paths, dataset,
-    # omics, MX knockoff, n_splits=100, n_bootstraps=300, imputer list, mask
-    # repeats and fold-safe are all fixed in Config.
     d = Config()
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--mechanism", default=d.mechanism, choices=["MCAR", "MAR", "MNAR"])
+
+    p.add_argument("--mechanism", default=d.mechanism,
+                   choices=["MCAR", "MAR", "MNAR"])
     p.add_argument("--missing-rate", type=float, default=d.missing_rate)
+    p.add_argument("--n-splits", type=int, default=d.n_splits)
+    p.add_argument("--n-bootstraps", type=int, default=d.n_bootstraps)
+    p.add_argument("--mask-repeats", type=int, default=d.n_mask_repeats)
+    p.add_argument("--imputers", nargs="+", default=list(d.imputers),
+                   choices=["simple", "knn", "iterative", "rf", "missforest"])
+    p.add_argument("--max-features", type=int, default=d.max_features_per_omic,
+                   help="Cap features per omic by variance before masking. "
+                        "Metabolomics has 3529 columns and drives the O(p^3) "
+                        "knockoff cost; 1500 is a reasonable cap.")
+    p.add_argument("--n-jobs", type=int, default=d.n_jobs)
+    p.add_argument("--out-dir", default=d.out_dir)
+    p.add_argument("--no-resume", action="store_true",
+                   help="Ignore cached conditions and recompute everything.")
+    p.add_argument("--debug", action="store_true",
+                   help="Log per-omic timing (preprocess / knockoff / stabl).")
+    p.add_argument("--smoke", action="store_true",
+                   help="Tiny end-to-end run. Use this first after any edit.")
     return p.parse_args()
 
 
@@ -619,19 +954,49 @@ def _run_suffix(cfg: Config):
 
 
 def main():
+    global _NOTIFIER
+
     a = parse_args()
-    cfg = Config(mechanism=a.mechanism, missing_rate=a.missing_rate)
+
+    cfg = Config(
+        mechanism=a.mechanism,
+        missing_rate=a.missing_rate,
+        n_splits=a.n_splits,
+        n_bootstraps=a.n_bootstraps,
+        n_mask_repeats=a.mask_repeats,
+        imputers=tuple(a.imputers),
+        max_features_per_omic=a.max_features,
+        n_jobs=a.n_jobs,
+        out_dir=a.out_dir,
+        resume=not a.no_resume,
+    )
+
+    if a.smoke:
+        cfg = replace(
+            cfg,
+            n_splits=2,
+            n_bootstraps=20,
+            n_mask_repeats=1,
+            imputers=("simple", "knn"),
+            max_features_per_omic=cfg.max_features_per_omic or 300,
+            out_dir=cfg.out_dir + " - SMOKE",
+            resume=False,
+        )
 
     cfg.out_dir = f"{cfg.out_dir} - {_run_suffix(cfg)}"
 
     from run_notifications import install_run_notifier
 
-    install_run_notifier(
+    _NOTIFIER = install_run_notifier(
         f"STABL imputation effect (CyPrMe, {cfg.mechanism}, rate={cfg.missing_rate})",
         log_name=_log_name(cfg),
     )
 
     setup_logging()
+    if a.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    logging.info(f"[config] {cfg}")
     run_experiment(cfg)
 
 
