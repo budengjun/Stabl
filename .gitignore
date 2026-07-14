@@ -137,6 +137,7 @@ Sample Data/Synthetic/*
 /Synthetic Linear/
 /Notebook examples/Results*
 /Notebook examples/*.log
+/Notebook examples/Diagnostics
 Sample Data/
 
 # VS Code
