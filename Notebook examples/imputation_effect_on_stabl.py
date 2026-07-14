@@ -160,6 +160,10 @@ class Config:
 
     resume: bool = True
 
+    # The out_dir the user passed, before " - MCAR rate 0p2" gets appended.
+    # The Real condition's cache lives next to it, shared across mechanisms.
+    base_out_dir: str = None
+
 
 # ====================================================================
 # 1. Logging + notifications
@@ -384,19 +388,23 @@ class _MiceForestWrapper:
     def fit(self, X, y=None):
         import miceforest as mf
 
-        Xdf = pd.DataFrame(X).copy()
-        self.columns_ = Xdf.columns
-        self.n_features_in_ = Xdf.shape[1]
-        self.kernel_ = mf.ImputationKernel(Xdf, num_datasets=1,
-                                           random_state=self.seed)
-        self.kernel_.mice(self.iterations)
+        X = np.asarray(X, dtype=float)
+        self.n_features_in_ = X.shape[1]
+        # miceforest stringifies variable names internally for LightGBM, then
+        # looks them up back in the DataFrame. Integer column names (what
+        # VarianceThreshold hands us) blow up with KeyError: '40'.
+        self.columns_ = [f"v{i}" for i in range(self.n_features_in_)]
+        Xdf = pd.DataFrame(X, columns=self.columns_)
+
+        self.kernel_ = mf.ImputationKernel(
+            Xdf, datasets=1, save_models=1, random_state=self.seed)  # 5.x: datasets
+        self.kernel_.mice(self.iterations, verbose=False)
         return self
 
     def transform(self, X):
-        Xdf = pd.DataFrame(X, columns=self.columns_).copy()
+        Xdf = pd.DataFrame(np.asarray(X, dtype=float), columns=self.columns_)
         completed = self.kernel_.impute_new_data(Xdf).complete_data(0)
-        out = np.asarray(completed, dtype=float)
-        return np.nan_to_num(out, nan=0.0)
+        return np.nan_to_num(np.asarray(completed, dtype=float), nan=0.0)
 
     def fit_transform(self, X, y=None):
         return self.fit(X, y).transform(X)
@@ -641,10 +649,30 @@ _FINGERPRINT_KEYS = (
     "rf_n_estimators", "rf_max_depth", "rf_max_iter",
 )
 
+# The Real condition runs on the complete data: no mask is ever applied, so it
+# does not depend on the missingness mechanism, the missing rate, or any imputer
+# setting. Its cache is therefore keyed on a narrower fingerprint and stored
+# outside the mechanism-specific out_dir, so MCAR / MAR / MNAR all share one
+# copy instead of recomputing an identical ~50 min result three times.
+_REAL_IRRELEVANT_KEYS = (
+    "mechanism", "missing_rate", "global_impute",
+    "iter_n_nearest", "iter_max_iter",
+    "rf_n_estimators", "rf_max_depth", "rf_max_iter",
+)
+
+
+def _fingerprint(cfg: Config, keys):
+    blob = "|".join(f"{k}={getattr(cfg, k)!r}" for k in keys)
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()[:8]
+
 
 def cfg_fingerprint(cfg: Config):
-    blob = "|".join(f"{k}={getattr(cfg, k)!r}" for k in _FINGERPRINT_KEYS)
-    return hashlib.md5(blob.encode("utf-8")).hexdigest()[:8]
+    return _fingerprint(cfg, _FINGERPRINT_KEYS)
+
+
+def real_fingerprint(cfg: Config):
+    keys = tuple(k for k in _FINGERPRINT_KEYS if k not in _REAL_IRRELEVANT_KEYS)
+    return _fingerprint(cfg, keys)
 
 
 def _cache_dir(cfg: Config):
@@ -657,8 +685,17 @@ def _cache_dir(cfg: Config):
     return d
 
 
+def _real_cache_dir(cfg: Config):
+    base = cfg.base_out_dir or cfg.out_dir
+    d = os.path.join(f"{base} - shared", f"_cache_real_{real_fingerprint(cfg)}")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def _cache_path(cfg: Config, key):
     safe = key.replace("/", "_").replace(" ", "_")
+    if key == "Real":
+        return os.path.join(_real_cache_dir(cfg), "Real.pkl")
     return os.path.join(_cache_dir(cfg), f"{safe}.pkl")
 
 
@@ -695,6 +732,8 @@ def run_experiment(cfg: Config):
     n_conditions = 1 + len(cfg.imputers) * cfg.n_mask_repeats
     fp = cfg_fingerprint(cfg)
     logging.info(f"[cache] fingerprint={fp} dir={_cache_dir(cfg)}")
+    logging.info(f"[cache] real_fingerprint={real_fingerprint(cfg)} "
+                f"dir={_real_cache_dir(cfg)}")
     notify(cfg, "STABL imputation run started",
            f"dataset={cfg.dataset} omics={list(cfg.omics)} "
            f"mechanism={cfg.mechanism} rate={cfg.missing_rate} "
@@ -983,6 +1022,7 @@ def main():
             resume=False,
         )
 
+    cfg.base_out_dir = cfg.out_dir          # 加后缀之前的原始路径
     cfg.out_dir = f"{cfg.out_dir} - {_run_suffix(cfg)}"
 
     from run_notifications import install_run_notifier
