@@ -1,0 +1,13 @@
+{
+  "absolute_cap": 0.8,
+  "calibration_margin": 0.1,
+  "classifier": "logistic",
+  "draw_max_slack": 0.05,
+  "global_swap_auc_max": 0.8,
+  "marginal_auc_max": 0.8,
+  "primary_tests": [
+    "marginal",
+    "global_swap"
+  ],
+  "source": "G2.2A calibrated valid controls; G2.4 additionally requires zero persistent C2ST convergence failures"
+}

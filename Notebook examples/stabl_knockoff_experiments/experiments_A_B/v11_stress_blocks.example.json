@@ -1,0 +1,26 @@
+[
+  {
+    "label": "ssi_cytof",
+    "dataset": "ssi",
+    "data_path": "$STABL_ROOT/Sample Data/Biobank SSI",
+    "omic": "CyTOF",
+    "subject_mode": "first",
+    "reference_complete_strategy": "drop-columns",
+    "p": 100,
+    "n_signal": 15,
+    "task": "classification",
+    "signal_strength": 4.0
+  },
+  {
+    "label": "dream_phylotype",
+    "dataset": "dream",
+    "data_path": "$STABL_ROOT/Sample Data/Dream",
+    "omic": "Phylotype",
+    "subject_mode": "first",
+    "reference_complete_strategy": "drop-columns",
+    "p": 100,
+    "n_signal": 15,
+    "task": "classification",
+    "signal_strength": 4.0
+  }
+]

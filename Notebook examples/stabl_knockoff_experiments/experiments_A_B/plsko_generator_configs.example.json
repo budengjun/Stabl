@@ -1,0 +1,42 @@
+[
+  {
+    "label": "equicorr",
+    "generator": "gaussian_equicorrelated"
+  },
+  {
+    "label": "mvr",
+    "generator": "gaussian_mvr"
+  },
+  {
+    "label": "plsko_q80_auto_s1",
+    "generator": "official_plsko",
+    "threshold_abs": null,
+    "threshold_q": 0.8,
+    "ncomp": null,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0_auto_s1",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": null,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0_n5_s05",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0_n10_s05",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.5
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "label": "equicorr",
+    "generator": "gaussian_equicorrelated"
+  },
+  {
+    "label": "mvr",
+    "generator": "gaussian_mvr"
+  },
+  {
+    "label": "factor_r20_mvr",
+    "generator": "gaussian_factor_mvr",
+    "factor_rank": 20,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  }
+]

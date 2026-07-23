@@ -1,0 +1,298 @@
+[
+  {
+    "label": "plsko_abs0p0_n2_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p0_n2_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p0_n2_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p0_n5_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p0_n5_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p0_n5_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p0_n10_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p0_n10_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p0_n10_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.0,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p1_n2_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p1_n2_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p1_n2_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p1_n5_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p1_n5_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p1_n5_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p1_n10_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p1_n10_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p1_n10_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.1,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p2_n2_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p2_n2_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p2_n2_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p2_n5_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p2_n5_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p2_n5_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p2_n10_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p2_n10_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p2_n10_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.2,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p3_n2_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p3_n2_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p3_n2_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 2,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p3_n5_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p3_n5_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p3_n5_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 5,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_abs0p3_n10_s0p5",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.5
+  },
+  {
+    "label": "plsko_abs0p3_n10_s0p8",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 0.8
+  },
+  {
+    "label": "plsko_abs0p3_n10_s1p0",
+    "generator": "official_plsko",
+    "threshold_abs": 0.3,
+    "threshold_q": null,
+    "ncomp": 10,
+    "sparsity": 1.0
+  },
+  {
+    "label": "plsko_default_q0p8",
+    "generator": "official_plsko",
+    "threshold_abs": null,
+    "threshold_q": 0.8,
+    "ncomp": null,
+    "sparsity": 1.0
+  }
+]

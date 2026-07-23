@@ -1,144 +1,74 @@
-# Byte-compiled / optimized / DLL files
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.hypothesis/
 .tox/
 .nox/
+.cache/
+
+# Test and coverage output
 .coverage
 .coverage.*
-.cache
-nosetests.xml
 coverage.xml
+htmlcov/
 *.cover
 *.py,cover
-.hypothesis/
-.pytest_cache/
 
-# Translations
-*.mo
-*.pot
+# Packaging and build output
+build/
+dist/
+.eggs/
+*.egg
+*.egg-info/
+.installed.cfg
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+# Virtual environments and local configuration
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+ENV/
 __pypackages__/
 
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
+# Jupyter
+.ipynb_checkpoints/
 
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-.DS_Store
+# Editors and operating-system metadata
 .idea/
-
-# Synthetic dataset
-Sample Data/Synthetic/*
-!Sample Data/Synthetic/runner.jl
-/Synthetic Linear/
-/Notebook examples/Results*
-/Notebook examples/*.log
-/Notebook examples/Diagnostics
-Sample Data/
-
-# VS Code
 .vscode/
+.DS_Store
+._*
+
+# Runtime experiment files (kept locally, not version-controlled)
+*.log
+*.npz
+
+# Generated experiment outputs. Source code, reusable configs, and
+# documentation under stabl_knockoff_experiments remain trackable.
+/Notebook examples/Diagnostics/
+/Notebook examples/Results*/
+/Notebook examples/stabl_knockoff_experiments/logs/
+/Notebook examples/stabl_knockoff_experiments/experiment_A/
+/Notebook examples/stabl_knockoff_experiments/experiment_B/
+/Notebook examples/stabl_knockoff_experiments/legacy_reanalysis/
+/Notebook examples/stabl_knockoff_experiments/OOL_all_generators_*/
+/Notebook examples/stabl_knockoff_experiments/experiments_A_B/generator_track_results/
+/Notebook examples/stabl_knockoff_experiments/experiments_A_B/logs/
+
+# Extracted datasets. Keep Sample Data/data.zip under version control.
+/Sample Data/Biobank SSI/
+/Sample Data/CFRNA/
+/Sample Data/COVID-19/
+/Sample Data/Dream/
+/Sample Data/Onset of Labor/
+
+# Generated synthetic data; keep the generator itself.
+/Sample Data/Synthetic/*
+!/Sample Data/Synthetic/runner.jl
+/Synthetic Linear/

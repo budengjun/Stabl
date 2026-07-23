@@ -1,0 +1,41 @@
+G2.4 package validation
+=======================
+
+Validated on: 2026-07-20
+
+1. Python syntax compilation
+   PASS
+   Files:
+   - run_g24_focused_pilot.py
+   - g24_c2st.py
+   - run_g24_self_test.py
+   - check_g24_environment.py
+   - test_g24_focused_pilot.py
+
+2. Fast self-test
+   PASS
+   valid-like paired C2ST AUC: 0.507
+   invalid shifted paired C2ST AUC: 1.000
+   persistent convergence failures: 0
+
+3. Pytest
+   PASS
+   2 tests passed
+
+4. Mocked end-to-end workflow
+   PASS
+   Stage 1, Stage 2, relative score paths, contrasts, decisions,
+   recommendation, and final status files were created.
+
+5. Package layout
+   PASS
+   Archive begins with experiments_A_B/ and does not contain an outer
+   stabl_knockoff_experiments/ directory.
+
+Not executed in this validation environment:
+- Real SSI data loading on fenn10
+- Real knockpy generation under the user's pinned environment
+- Real STABL pilot with 150 fits
+
+Those are covered by check_g24_environment.py, the smoke command, and the
+focused pilot command on fenn10.

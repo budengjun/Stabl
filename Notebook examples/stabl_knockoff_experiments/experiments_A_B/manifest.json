@@ -1,0 +1,62 @@
+{
+  "package": "STABL_G2_2_Python_Validity_and_Screening_Patch",
+  "version": "1.0",
+  "contains_shell_scripts": false,
+  "files": [
+    {
+      "path": "APPLY_G22_PYTHON_ONLY.md",
+      "size_bytes": 1242,
+      "sha256": "4b7d17858d28dba23a4305f1533a4bff6facb5fa9b8261f18b0629075a1b680e"
+    },
+    {
+      "path": "VALIDATION_G22.md",
+      "size_bytes": 798,
+      "sha256": "42330d3ed945613145948d4e6222a2d7a036068e50d57c5c7b29f395cf23efef"
+    },
+    {
+      "path": "generator_track/RUN_G22_PYTHON_ONLY.md",
+      "size_bytes": 4558,
+      "sha256": "acf2deba2d83c1c4a1e287acc3773da7b00da65d0b8122203766276f691f08aa"
+    },
+    {
+      "path": "generator_track/configs/g22_plsko_screen_grid.json",
+      "size_bytes": 6243,
+      "sha256": "1905e9f584baf66f4ab7af939cef1cfa6d73a566e55d6fe373403c62ca570a28"
+    },
+    {
+      "path": "generator_track/g22_common.py",
+      "size_bytes": 19454,
+      "sha256": "03dbd3e9648500374ad629117820c6f9a69a43b3835ec89ffcdc6a65ed1e9914"
+    },
+    {
+      "path": "generator_track/run_g22_self_test.py",
+      "size_bytes": 2394,
+      "sha256": "351e9686f89b32defa02193d9e028c2ff4be32af3c292674863c136d084096bd"
+    },
+    {
+      "path": "generator_track/run_g22a_ssi_validity.py",
+      "size_bytes": 1352,
+      "sha256": "d0b3b10012c07eda8eb6f5328875254ddd55f5db3964a014eb528ca784795b4b"
+    },
+    {
+      "path": "generator_track/run_g22a_validity_calibration.py",
+      "size_bytes": 17431,
+      "sha256": "3bad9667ce70e87ed5532442446f9b85f9faf54f4ed6f53078fc4d245cf4aade"
+    },
+    {
+      "path": "generator_track/run_g22b_ssi_screening.py",
+      "size_bytes": 1368,
+      "sha256": "4c6f0de752919f800d166fd1fb6f9900e091cba034a48f1238823a99051a3cd5"
+    },
+    {
+      "path": "generator_track/run_g22b_stabl_aware_screening.py",
+      "size_bytes": 29343,
+      "sha256": "e9fe521cdda49b0a766168c4e12705dced963bf88f8804567ad0d56a676bba1e"
+    },
+    {
+      "path": "generator_track/test_g22_python.py",
+      "size_bytes": 1461,
+      "sha256": "53ba38bc777ef14f94151a68e26a1d1c0d50aca410a3676021f3906ef9e7e7fd"
+    }
+  ]
+}

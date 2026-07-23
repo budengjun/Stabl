@@ -1329,23 +1329,14 @@ class Stabl(SelectorMixin, BaseEstimator):
             rng = np.random.default_rng(seed=random_state)
             n_features = X.shape[1]
             if n_features > 3000:
-                initial_shape = (X.shape[0], (X.shape[1] // 3000 + 1) * 3000)
-                X_artificial = np.empty(initial_shape)
-                for i in range(X.shape[1] // 3000 + 1):
-                    cols = rng.choice(a=X.shape[1], size=3000, replace=False)
-                    if isinstance(X, pd.DataFrame):
-                        X_tmp = X.iloc[:, cols].copy()
-                    else:
-                        X_tmp = X[:, cols].copy()
-                    X_art_tmp = generate_noise(X_tmp)
-                    X_artificial[:, i * 3000 : (i + 1) * 3000] = X_art_tmp
-                X_artificial = X_artificial[
-                    :,
-                    rng.choice(a=X_artificial.shape[1], size=X.shape[1], replace=False),
-                ]
-
-            else:
-                X_artificial = generate_noise(X.copy())
+                raise ValueError(
+                    "The legacy p > 3000 knockoff chunking branch destroys the "
+                    "one-to-one original/knockoff pairing and is disabled. "
+                    "Prefilter the omic layer to at most 3000 features, generate "
+                    "one unchunked knockoff matrix externally and pass it through "
+                    "X_artificial, or use a validated scalable generator."
+                )
+            X_artificial = generate_noise(X.copy())
             indices = rng.choice(a=X_artificial.shape[1], size=nb_noise, replace=False)
             self.noise_group = indices
             X_artificial = X_artificial[:, indices]

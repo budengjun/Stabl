@@ -1,0 +1,98 @@
+[
+  {
+    "label": "equicorr",
+    "generator": "gaussian_equicorrelated"
+  },
+  {
+    "label": "mvr",
+    "generator": "gaussian_mvr"
+  },
+  {
+    "label": "sdp",
+    "generator": "gaussian_sdp"
+  },
+  {
+    "label": "factor_r2_equicorr",
+    "generator": "gaussian_factor_equicorrelated",
+    "factor_rank": 2,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r2_mvr",
+    "generator": "gaussian_factor_mvr",
+    "factor_rank": 2,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r2_sdp",
+    "generator": "gaussian_factor_sdp",
+    "factor_rank": 2,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r5_equicorr",
+    "generator": "gaussian_factor_equicorrelated",
+    "factor_rank": 5,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r5_mvr",
+    "generator": "gaussian_factor_mvr",
+    "factor_rank": 5,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r5_sdp",
+    "generator": "gaussian_factor_sdp",
+    "factor_rank": 5,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r10_equicorr",
+    "generator": "gaussian_factor_equicorrelated",
+    "factor_rank": 10,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r10_mvr",
+    "generator": "gaussian_factor_mvr",
+    "factor_rank": 10,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r10_sdp",
+    "generator": "gaussian_factor_sdp",
+    "factor_rank": 10,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r20_equicorr",
+    "generator": "gaussian_factor_equicorrelated",
+    "factor_rank": 20,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r20_mvr",
+    "generator": "gaussian_factor_mvr",
+    "factor_rank": 20,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  },
+  {
+    "label": "factor_r20_sdp",
+    "generator": "gaussian_factor_sdp",
+    "factor_rank": 20,
+    "factor_diag_floor": 0.001,
+    "factor_shrinkage": 0.05
+  }
+]

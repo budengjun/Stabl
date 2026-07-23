@@ -1,0 +1,13 @@
+G2.3 package validation
+
+Completed before packaging:
+
+1. Python syntax compilation passed for research_common.py and all new G2.3 scripts.
+2. Three G2.3 unit tests passed.
+3. The G2.3 factor covariance and C2ST self-test passed.
+4. A mocked end-to-end run completed Stage 1, Stage 2, paired contrasts, decisions, recommendation, and status output creation.
+5. JSON configuration files were parsed successfully.
+
+Not completed in the packaging environment:
+
+The formal scientific smoke or pilot was not run with the real SSI dataset, the real STABL package, or the real knockpy installation. Run generator_track/check_g23_environment.py on fenn10 before the smoke experiment.

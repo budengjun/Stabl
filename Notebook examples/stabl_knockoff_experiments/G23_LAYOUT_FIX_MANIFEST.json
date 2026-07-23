@@ -1,0 +1,12 @@
+{
+  "patch": "G23_layout_fix",
+  "version": 2,
+  "archive_root": "existing project root",
+  "files": [
+    "experiments_A_B/generator_track/run_g23_gaussian_family_screening.py",
+    "experiments_A_B/generator_track/repair_g23_layout.py",
+    "experiments_A_B/generator_track/RUN_G23_GAUSSIAN_FAMILY.md",
+    "G23_LAYOUT_FIX.md",
+    "G23_LAYOUT_FIX_MANIFEST.json"
+  ]
+}
